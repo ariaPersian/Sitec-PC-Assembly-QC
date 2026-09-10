@@ -12,7 +12,7 @@ $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
 $baselinePath=Join-Path $DataRoot ("Assets\$AssetId\Baseline\hardware-qc-manifest.json")
-if (-not (Test-Path -LiteralPath $baselinePath)) { throw "Baseline not found for $AssetId: $baselinePath" }
+if (-not (Test-Path -LiteralPath $baselinePath)) { throw "Baseline not found for ${AssetId}: $baselinePath" }
 $baseline=Get-Content -LiteralPath $baselinePath -Raw | ConvertFrom-Json
 $current=Get-SitecHardwareInventory
 $checks=New-Object System.Collections.Generic.List[object]
