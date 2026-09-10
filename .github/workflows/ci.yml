@@ -1,0 +1,38 @@
+name: validate
+on:
+  push:
+  pull_request:
+jobs:
+  powershell-parse:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse all PowerShell files with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $failed = $false
+          Get-ChildItem -Recurse -Include *.ps1,*.psm1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              Write-Host "Syntax errors in $($_.FullName)" -ForegroundColor Red
+              $errors | Format-List
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+      - name: Validate JSON profiles and settings
+        shell: powershell
+        run: |
+          Get-ChildItem config,profiles -Filter *.json -Recurse | ForEach-Object {
+            Get-Content $_.FullName -Raw | ConvertFrom-Json | Out-Null
+            Write-Host "OK $($_.FullName)"
+          }
+      - name: Validate XAML parses
+        shell: powershell
+        run: |
+          Add-Type -AssemblyName PresentationFramework
+          [xml]$x = Get-Content .\ui\MainWindow.xaml -Raw
+          $reader = New-Object System.Xml.XmlNodeReader $x
+          $w = [Windows.Markup.XamlReader]::Load($reader)
+          if (-not $w) { throw 'XAML did not load' }
