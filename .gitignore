@@ -1,0 +1,6 @@
+tools/bin/
+tools/librehardwaremonitor/
+*.user
+*.tmp
+*.log
+SitecQC-Data/

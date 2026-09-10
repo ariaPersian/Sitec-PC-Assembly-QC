@@ -1,0 +1,11 @@
+function Get-SitecSha256 { param([Parameter(Mandatory)][string]$Path); (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant() }
+function Protect-SitecManifest {
+ [CmdletBinding()]param([Parameter(Mandatory)][string]$ManifestPath,[Parameter(Mandatory)]$Context)
+ $hash=Get-SitecSha256 -Path $ManifestPath;$shaPath=[IO.Path]::ChangeExtension($ManifestPath,'.sha256');Set-Content -LiteralPath $shaPath -Value "$hash  $([IO.Path]::GetFileName($ManifestPath))" -Encoding ASCII
+ $thumb=[string]$Context.Settings.Security.SigningCertificateThumbprint;if([string]::IsNullOrWhiteSpace($thumb)){return [pscustomobject]@{Sha256=$hash;Signed=$false;SignaturePath=$null;CertificatePath=$null}}
+ $thumb=($thumb -replace '\s','').ToUpperInvariant();$cert=Get-ChildItem Cert:\CurrentUser\My,Cert:\LocalMachine\My -ErrorAction SilentlyContinue|Where-Object{$_.Thumbprint -eq $thumb -and $_.HasPrivateKey}|Select-Object -First 1
+ if(-not $cert){if($Context.Settings.Security.RequireDigitalSignature){throw "Signing certificate $thumb with private key was not found."};return [pscustomobject]@{Sha256=$hash;Signed=$false;SignaturePath=$null;CertificatePath=$null}}
+ $bytes=[IO.File]::ReadAllBytes($ManifestPath);$rsa=[System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert);try{$sig=$rsa.SignData($bytes,[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1)}finally{if($rsa){$rsa.Dispose()}}
+ $sigPath=$ManifestPath+'.sig';[IO.File]::WriteAllText($sigPath,[Convert]::ToBase64String($sig),[Text.Encoding]::ASCII);$cerPath=$ManifestPath+'.cer';[IO.File]::WriteAllBytes($cerPath,$cert.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert));[pscustomobject]@{Sha256=$hash;Signed=$true;SignaturePath=$sigPath;CertificatePath=$cerPath;Thumbprint=$cert.Thumbprint}
+}
+function Write-SitecEvidenceHashes { param([Parameter(Mandatory)][string]$RunPath);$hashFile=Join-Path $RunPath 'hashes.sha256';$lines=@();Get-ChildItem -LiteralPath $RunPath -File -Recurse|Where-Object{$_.FullName -ne $hashFile -and $_.Extension -notin '.sig','.cer'}|Sort-Object FullName|ForEach-Object{$relative=$_.FullName.Substring($RunPath.Length).TrimStart('\');$lines += "$(Get-SitecSha256 $_.FullName)  $relative"};Set-Content -LiteralPath $hashFile -Value $lines -Encoding ASCII;$hashFile }
