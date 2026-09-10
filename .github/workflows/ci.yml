@@ -43,7 +43,15 @@ jobs:
 
       - name: Run Windows PowerShell runtime smoke tests
         shell: powershell
-        run: .\tests\Runtime.Tests.ps1
+        run: |
+          $ErrorActionPreference='Stop'
+          Get-ChildItem .\tests -Filter *.Tests.ps1 | Sort-Object Name | ForEach-Object {
+            Write-Host "=== Running $($_.Name) ===" -ForegroundColor Cyan
+            $global:LASTEXITCODE=0
+            & $_.FullName
+            if (-not $?) { throw "$($_.Name) reported a PowerShell failure." }
+            if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "$($_.Name) failed with exit code $LASTEXITCODE" }
+          }
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
@@ -61,10 +69,6 @@ jobs:
             Copy-Item -LiteralPath $_ -Destination $stage -Recurse -Force
           }
 
-          # Git stores source as UTF-8 without BOM. Windows PowerShell 5.1 treats
-          # BOM-less script files using the legacy ANSI code page, which can turn
-          # punctuation/non-ASCII report strings into mojibake. Normalize the
-          # packaged scripts to UTF-8 with BOM before embedding them in SitecQC.exe.
           $utf8Bom=New-Object System.Text.UTF8Encoding($true)
           Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.Extension -in '.ps1','.psm1' } | ForEach-Object {
             $text=[IO.File]::ReadAllText($_.FullName,[Text.Encoding]::UTF8)
