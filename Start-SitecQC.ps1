@@ -17,7 +17,7 @@ $context=Get-SitecContext -DataRoot $DataRoot
 $profile=Get-SitecProfile -Context $context -ProfileId ([string]$context.Settings.DefaultProfileId)
 
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
-[xml]$xaml=Get-Content -LiteralPath (Join-Path $root 'ui\MainWindow.xaml') -Raw
+[xml]$xaml=Get-Content -LiteralPath (Join-Path $root 'ui\MainWindow.xaml') -Raw -Encoding UTF8
 $reader=New-Object System.Xml.XmlNodeReader $xaml
 $window=[Windows.Markup.XamlReader]::Load($reader)
 function C([string]$n){$window.FindName($n)}
@@ -48,7 +48,7 @@ $TxtProfileDisplay.Text=[string]$profile.ProfileId + ' v' + [string]$profile.Pro
 $TxtOperator.Text=$env:USERNAME
 $TxtDataRoot.Text=[string]$context.Settings.DataRoot
 $expectedParts=@([string]$profile.Expected.CaseModel,[string]$profile.Expected.PsuModel,[string]$profile.Expected.CpuCoolerModel) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-$TxtExpectedSummary.Text=$expectedParts -join '  •  '
+$TxtExpectedSummary.Text=$expectedParts -join ' | '
 
 $script:LastReport=$null
 $script:Worker=$null
@@ -99,28 +99,29 @@ function Refresh-SitecHardware {
         $script:Hardware=$h
         if ([string]::IsNullOrWhiteSpace($TxtAssetId.Text)) { $TxtAssetId.Text=Get-SitecAutoAssetId -Hardware $h }
 
-        $lines=@(
-            "Computer   : $($h.ComputerName)",
-            "Asset ID   : $($TxtAssetId.Text)",
-            "Board      : $($h.Motherboard.Manufacturer) $($h.Motherboard.Model)",
-            "Board S/N  : $($h.Motherboard.SerialNumber)",
-            "CPU        : $($h.CPU.Model) [$($h.CPU.Cores)C/$($h.CPU.LogicalProcessors)T]",
-            "BIOS       : $($h.BIOS.Version) ($($h.BIOS.ReleaseDate))",
-            "RAM        : $($h.MemoryTotalGB) GB",
-            ($h.Memory | ForEach-Object { "  RAM       : $($_.Slot) | $($_.Manufacturer) $($_.PartNumber) | S/N $($_.SerialNumber) | $($_.ConfiguredSpeedMHz) MHz" }),
-            ($h.Storage | ForEach-Object {
-                $text="  STORAGE   : $($_.Model) | S/N $($_.SerialNumber) | $($_.SizeGB) GB | $($_.BusType)"
-                if ($_.Reliability -and $_.Reliability.Available) {
-                    $extra=@()
-                    if ($null -ne $_.Reliability.TemperatureC) { $extra += "Temp $($_.Reliability.TemperatureC)C" }
-                    if ($null -ne $_.Reliability.PowerOnHours) { $extra += "POH $($_.Reliability.PowerOnHours)h" }
-                    if ($null -ne $_.Reliability.WearPercent) { $extra += "Wear $($_.Reliability.WearPercent)%" }
-                    if ($extra.Count -gt 0) { $text += ' | ' + ($extra -join ' | ') }
-                }
-                $text
-            }),
-            ($h.Graphics | ForEach-Object { "  GPU       : $($_.Name)" })
-        )
+        $lines=@()
+        $lines += "Computer   : $($h.ComputerName)"
+        $lines += "Asset ID   : $($TxtAssetId.Text)"
+        $lines += "Board      : $($h.Motherboard.Manufacturer) $($h.Motherboard.Model)"
+        $lines += "Board S/N  : $($h.Motherboard.SerialNumber)"
+        $lines += "CPU        : $($h.CPU.Model) [$($h.CPU.Cores)C/$($h.CPU.LogicalProcessors)T]"
+        $lines += "BIOS       : $($h.BIOS.Version) ($($h.BIOS.ReleaseDate))"
+        $lines += "RAM        : $($h.MemoryTotalGB) GB"
+        foreach ($memory in @($h.Memory)) {
+            $lines += "  RAM      : $($memory.Slot) | $($memory.Manufacturer) $($memory.PartNumber) | S/N $($memory.SerialNumber) | $($memory.ConfiguredSpeedMHz) MHz"
+        }
+        foreach ($disk in @($h.Storage)) {
+            $text="  STORAGE  : $($disk.Model) | S/N $($disk.SerialNumber) | $($disk.SizeGB) GB | $($disk.BusType)"
+            if ($disk.Reliability -and $disk.Reliability.Available) {
+                $extra=@()
+                if ($null -ne $disk.Reliability.TemperatureC) { $extra += "Temp $($disk.Reliability.TemperatureC)C" }
+                if ($null -ne $disk.Reliability.PowerOnHours) { $extra += "POH $($disk.Reliability.PowerOnHours)h" }
+                if ($null -ne $disk.Reliability.WearPercent) { $extra += "Wear $($disk.Reliability.WearPercent)%" }
+                if ($extra.Count -gt 0) { $text += ' | ' + ($extra -join ' | ') }
+            }
+            $lines += $text
+        }
+        foreach ($gpu in @($h.Graphics)) { $lines += "  GPU      : $($gpu.Name)" }
         if ($h.SystemEnclosure -and (Test-SitecUsefulIdentifier $h.SystemEnclosure.SerialNumber)) { $lines += "Chassis S/N : $($h.SystemEnclosure.SerialNumber)" }
         if ($h.SystemEnclosure -and (Test-SitecUsefulIdentifier $h.SystemEnclosure.SMBIOSAssetTag)) { $lines += "SMBIOS Tag  : $($h.SystemEnclosure.SMBIOSAssetTag)" }
         if (@($h.PnPErrors).Count -gt 0) { $lines += "PnP Errors  : $(@($h.PnPErrors).Count)" }
@@ -201,17 +202,17 @@ $timer.Add_Tick({
         $statusFile=Get-ChildItem -LiteralPath $assetRoot -Filter status.json -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $script:StartedAt.AddSeconds(-2) } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($statusFile) {
             try {
-                $s=Get-Content $statusFile.FullName -Raw | ConvertFrom-Json
+                $s=Get-Content $statusFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
                 $script:CurrentStatus=$s
                 $ProgressQc.Value=[int]$s.Percent
                 $TxtStage.Text=[string]$s.Stage
                 $TxtMessage.Text=[string]$s.Message
                 $log=Join-Path $s.RunPath 'worker.log'
-                if (Test-Path $log) { $TxtLog.Text=Get-Content $log -Raw; $TxtLog.ScrollToEnd() }
+                if (Test-Path $log) { $TxtLog.Text=Get-Content $log -Raw -Encoding UTF8; $TxtLog.ScrollToEnd() }
                 if ($s.State -eq 'COMPLETE') {
                     $resultPath=Join-Path $s.RunPath 'result.json'
                     if (Test-Path $resultPath) {
-                        $r=Get-Content $resultPath -Raw | ConvertFrom-Json
+                        $r=Get-Content $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
                         $script:LastReport=if($r.Pdf){$r.Pdf}else{$r.Html}
                     }
                 }
