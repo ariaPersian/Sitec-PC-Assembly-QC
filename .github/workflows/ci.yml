@@ -28,7 +28,7 @@ jobs:
         shell: powershell
         run: |
           Get-ChildItem config,profiles -Filter *.json -Recurse | ForEach-Object {
-            Get-Content $_.FullName -Raw | ConvertFrom-Json | Out-Null
+            Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json | Out-Null
             Write-Host "OK $($_.FullName)"
           }
 
@@ -36,7 +36,7 @@ jobs:
         shell: powershell
         run: |
           Add-Type -AssemblyName PresentationFramework
-          [xml]$x = Get-Content .\ui\MainWindow.xaml -Raw
+          [xml]$x = Get-Content .\ui\MainWindow.xaml -Raw -Encoding UTF8
           $reader = New-Object System.Xml.XmlNodeReader $x
           $w = [Windows.Markup.XamlReader]::Load($reader)
           if (-not $w) { throw 'XAML did not load' }
@@ -59,6 +59,16 @@ jobs:
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           @('Start-SitecQC.ps1','Invoke-SitecQC.ps1','Verify-SitecQC.ps1','src','ui','config','profiles','tools','THIRD-PARTY-NOTICES.md') | ForEach-Object {
             Copy-Item -LiteralPath $_ -Destination $stage -Recurse -Force
+          }
+
+          # Git stores source as UTF-8 without BOM. Windows PowerShell 5.1 treats
+          # BOM-less script files using the legacy ANSI code page, which can turn
+          # punctuation/non-ASCII report strings into mojibake. Normalize the
+          # packaged scripts to UTF-8 with BOM before embedding them in SitecQC.exe.
+          $utf8Bom=New-Object System.Text.UTF8Encoding($true)
+          Get-ChildItem -LiteralPath $stage -Recurse -File | Where-Object { $_.Extension -in '.ps1','.psm1' } | ForEach-Object {
+            $text=[IO.File]::ReadAllText($_.FullName,[Text.Encoding]::UTF8)
+            [IO.File]::WriteAllText($_.FullName,$text,$utf8Bom)
           }
 
           $temp=Join-Path $env:RUNNER_TEMP 'SitecQC-deps'

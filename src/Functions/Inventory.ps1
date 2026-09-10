@@ -2,8 +2,18 @@ function Test-SitecUsefulIdentifier {
     param($Value)
     $s=([string]$Value).Trim()
     if ([string]::IsNullOrWhiteSpace($s)) { return $false }
-    $bad=@('NONE','N/A','NA','DEFAULT STRING','DEFAULT','TO BE FILLED BY O.E.M.','TO BE FILLED BY OEM','SYSTEM SERIAL NUMBER','UNKNOWN','0','00000000','123456789')
-    -not ($bad -contains $s.ToUpperInvariant())
+
+    $upper=$s.ToUpperInvariant()
+    $bad=@(
+        'NONE','N/A','NA','DEFAULT STRING','DEFAULT',
+        'TO BE FILLED BY O.E.M.','TO BE FILLED BY OEM',
+        'SYSTEM SERIAL NUMBER','UNKNOWN','0','00000000','123456789'
+    )
+    if ($bad -contains $upper) { return $false }
+
+    $compact=$upper -replace '[^A-Z0-9]',''
+    if ($compact.Length -ge 8 -and ($compact -match '^0+$' -or $compact -match '^F+$')) { return $false }
+    return $true
 }
 
 function ConvertTo-SitecAssetToken {
