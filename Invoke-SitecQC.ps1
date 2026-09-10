@@ -21,6 +21,7 @@ $context=Get-SitecContext -DataRoot $DataRoot
 $profile=Get-SitecProfile -Context $context -ProfileId $ProfileId
 if ([string]::IsNullOrWhiteSpace($CaseModel)) { $CaseModel=[string]$profile.Expected.CaseModel }
 if ([string]::IsNullOrWhiteSpace($PsuModel)) { $PsuModel=[string]$profile.Expected.PsuModel }
+if ([string]::IsNullOrWhiteSpace($Cooler)) { $Cooler=[string]$profile.Expected.CpuCoolerModel }
 
 $admin=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) { throw 'Sitec QC must run as Administrator.' }
@@ -45,13 +46,23 @@ function Set-WorkerStatus([string]$Stage,[int]$Percent,[string]$Message,[string]
 try {
     Set-WorkerStatus 'Inventory' 5 'Collecting hardware inventory'
     $hardware=Get-SitecHardwareInventory
-    $physical=[pscustomobject]@{ CaseModel=$CaseModel; PsuModel=$PsuModel; PsuSerial=$PsuSerial.Trim(); CpuAtpo=$CpuAtpo.Trim(); Cooler=$Cooler.Trim(); Seal1=$Seal1.Trim(); Seal2=$Seal2.Trim() }
+    $physical=[pscustomobject]@{
+        CaseModel=$CaseModel
+        PsuModel=$PsuModel
+        PsuSerial=$PsuSerial.Trim()
+        CpuAtpo=$CpuAtpo.Trim()
+        Cooler=$Cooler.Trim()
+        Seal1=$Seal1.Trim()
+        Seal2=$Seal2.Trim()
+    }
 
     Set-WorkerStatus 'Validation' 18 'Validating expected BOM and serial identity'
     $bom=Test-SitecExpectedBom -Hardware $hardware -Physical $physical -Profile $profile
-    $duplicates=@(Find-SitecDuplicateSerials -DataRoot $data -AssetId $AssetId -Hardware $hardware -Physical $physical)
+    $duplicates=@(Find-SitecDuplicateSerials -DataRoot $data -AssetId $AssetId -Hardware $hardware -Physical $physical -Profile $profile)
     if ($duplicates.Count -gt 0) {
-        $dupChecks=@($duplicates | ForEach-Object { New-SitecCheck -Name ("Duplicate {0} serial" -f $_.Type) -Expected 'Unique in fleet' -Actual ("{0} already registered to {1}" -f $_.Serial,$_.ExistingAssetId) -Passed $false })
+        $dupChecks=@($duplicates | ForEach-Object {
+            New-SitecCheck -Name ("Duplicate {0} serial" -f $_.Type) -Expected 'Unique in fleet' -Actual ("{0} already registered to {1}" -f $_.Serial,$_.ExistingAssetId) -Passed $false
+        })
         $bom.Checks=@($bom.Checks)+$dupChecks
         $bom.Status='FAIL'
     }
@@ -65,18 +76,21 @@ try {
     } else {
         Set-WorkerStatus 'Benchmark' 55 'Benchmark skipped because expected BOM validation failed'
         $benchmark=[pscustomobject]@{
-            StartedAt=$null; FinishedAt=$null;
-            WinSAT=[pscustomobject]@{Available=$false;Status='SKIPPED';CpuCompressionMBps=$null;MemoryMBps=$null};
-            Stress=[pscustomobject]@{Status='SKIPPED';CpuStress=[pscustomobject]@{Seconds=0;Threads=0;HashWorkMBps=0;Iterations=0};MemoryVerification=[pscustomobject]@{RequestedMB=0;VerifiedMB=0;Errors=0;Seconds=0};Sensors=@()};
-            DiskSpd=[pscustomobject]@{Available=$false;Required=$false;Status='SKIPPED';SequentialReadMBps=$null;SequentialWriteMBps=$null;RandomReadIOPS=$null};
+            StartedAt=$null; FinishedAt=$null
+            WinSAT=[pscustomobject]@{Available=$false;Status='SKIPPED';CpuCompressionMBps=$null;MemoryMBps=$null}
+            Stress=[pscustomobject]@{Status='SKIPPED';CpuStress=[pscustomobject]@{Seconds=0;Threads=0;HashWorkMBps=0;Iterations=0};MemoryVerification=[pscustomobject]@{RequestedMB=0;VerifiedMB=0;Errors=0;Seconds=0};Sensors=@()}
+            DiskSpd=[pscustomobject]@{Available=$false;Required=$false;Status='SKIPPED';SequentialReadMBps=$null;SequentialWriteMBps=$null;RandomReadIOPS=$null}
             WHEA=[pscustomobject]@{Count=0;Events=@()}
         }
-        $benchValidation=[pscustomobject]@{Status='SKIPPED';Checks=@(New-SitecCheck -Name 'Benchmark suite' -Expected 'BOM PASS before benchmark' -Actual 'Skipped because BOM failed' -Passed $false -Severity 'Warning')}
+        $benchValidation=[pscustomobject]@{
+            Status='SKIPPED'
+            Checks=@(New-SitecCheck -Name 'Benchmark suite' -Expected 'BOM PASS before benchmark' -Actual 'Skipped because BOM failed' -Passed $false -Severity 'Warning')
+        }
     }
 
     $overall=if ($bom.Status -eq 'PASS' -and ($benchValidation.Status -eq 'PASS' -or $benchValidation.Status -eq 'SKIPPED')) {'PASS'} else {'FAIL'}
     $run=[pscustomobject]@{
-        SchemaVersion='1.0'
+        SchemaVersion='1.1'
         AssetId=$AssetId
         RunId=$runId
         Operator=$Operator
@@ -94,7 +108,7 @@ try {
         Security=$null
     }
 
-    Set-WorkerStatus 'Evidence' 82 'Writing immutable-style manifest and generating evidence protection'
+    Set-WorkerStatus 'Evidence' 82 'Writing manifest and calculating stable hardware identity'
     $manifest=Join-Path $runPath 'hardware-qc-manifest.json'
     $run | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $manifest -Encoding UTF8
     $security=Protect-SitecManifest -ManifestPath $manifest -Context $context
@@ -111,6 +125,10 @@ try {
             New-Item -ItemType Directory -Path $baselineRoot -Force | Out-Null
             Copy-Item -LiteralPath $manifest -Destination $baselineManifest
             Copy-Item -LiteralPath ([IO.Path]::ChangeExtension($manifest,'.sha256')) -Destination (Join-Path $baselineRoot 'hardware-qc-manifest.sha256') -ErrorAction SilentlyContinue
+            $identityText=Join-Path $runPath 'hardware-identity.txt'
+            $identitySha=Join-Path $runPath 'hardware-identity.sha256'
+            if (Test-Path -LiteralPath $identityText) { Copy-Item -LiteralPath $identityText -Destination (Join-Path $baselineRoot 'hardware-identity.txt') -Force }
+            if (Test-Path -LiteralPath $identitySha) { Copy-Item -LiteralPath $identitySha -Destination (Join-Path $baselineRoot 'hardware-identity.sha256') -Force }
             if ($security.Signed) {
                 Copy-Item -LiteralPath $security.SignaturePath -Destination (Join-Path $baselineRoot 'hardware-qc-manifest.json.sig')
                 Copy-Item -LiteralPath $security.CertificatePath -Destination (Join-Path $baselineRoot 'hardware-qc-manifest.json.cer')
@@ -119,8 +137,21 @@ try {
     }
 
     Update-SitecFleetIndex -DataRoot $data -Run $run
-    Set-WorkerStatus 'Complete' 100 "QC complete: $overall" 'COMPLETE'
-    [pscustomobject]@{ AssetId=$AssetId; RunId=$runId; OverallStatus=$overall; RunPath=$runPath; Manifest=$manifest; Html=$report.HtmlPath; Pdf=$report.PdfPath } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runPath 'result.json') -Encoding UTF8
+
+    $result=[pscustomobject]@{
+        AssetId=$AssetId
+        RunId=$runId
+        OverallStatus=$overall
+        RunPath=$runPath
+        HardwareIdentitySha256=$security.HardwareIdentitySha256
+        ManifestSha256=$security.Sha256
+        Manifest=$manifest
+        Html=$report.HtmlPath
+        Pdf=$report.PdfPath
+    }
+    $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runPath 'result.json') -Encoding UTF8
+    Set-WorkerStatus 'Complete' 100 ("QC complete: {0} | HWID SHA-256: {1}" -f $overall,$security.HardwareIdentitySha256) 'COMPLETE'
+
     if ($overall -eq 'PASS') { exit 0 } else { exit 2 }
 } catch {
     $msg=$_.Exception.Message
