@@ -4,7 +4,7 @@
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <Border Grid.Row="0" Background="#263746" CornerRadius="8" Padding="18" Margin="0,0,0,14">
       <DockPanel>
-        <StackPanel><TextBlock Text="SITEC PC Assembly &amp; QC" FontSize="26" FontWeight="Bold" Foreground="White"/><TextBlock Text="Automatic Inventory • BOM Validation • Benchmark • WHEA • Evidence Certificate" Foreground="#D5E0E8"/></StackPanel>
+        <StackPanel><TextBlock Text="SITEC PC Assembly &amp; QC" FontSize="26" FontWeight="Bold" Foreground="White"/><TextBlock Text="Automatic Inventory | BOM Validation | Benchmark | WHEA | Evidence Certificate" Foreground="#D5E0E8"/></StackPanel>
         <TextBlock x:Name="TxtHeaderStatus" Text="PREPARING" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="22" FontWeight="Bold" Foreground="#A8E6BE"/>
       </DockPanel>
     </Border>
@@ -22,7 +22,7 @@
           </Grid>
         </GroupBox>
 
-        <GroupBox Header="Physical identity — scan only" Margin="0,0,0,10" Padding="10">
+        <GroupBox Header="Physical identity - scan only" Margin="0,0,0,10" Padding="10">
           <StackPanel>
             <TextBlock Text="These values cannot be reliably read by Windows. Use a barcode/2D scanner; pressing Enter moves to the next scan." Foreground="#667" TextWrapping="Wrap" Margin="0,0,0,8"/>
             <Grid>
