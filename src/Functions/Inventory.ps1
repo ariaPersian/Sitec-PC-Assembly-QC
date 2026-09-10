@@ -11,11 +11,8 @@ function Test-SitecUsefulIdentifier {
     )
     if ($bad -contains $upper) { return $false }
 
-    # Reject common empty/placeholder SMBIOS UUID/serial patterns such as
-    # 0000... and FFFF..., regardless of dashes/braces/spaces.
     $compact=$upper -replace '[^A-Z0-9]',''
     if ($compact.Length -ge 8 -and ($compact -match '^0+$' -or $compact -match '^F+$')) { return $false }
-
     return $true
 }
 
@@ -68,7 +65,7 @@ function Get-SitecSerialSet {
     $rows=@()
     if ($Hardware.Motherboard.SerialNumber) { $rows += [pscustomobject]@{Type='Motherboard';Serial=[string]$Hardware.Motherboard.SerialNumber} }
     foreach ($m in @($Hardware.Memory)) { if ($m.SerialNumber) { $rows += [pscustomobject]@{Type='RAM';Serial=[string]$m.SerialNumber} } }
-    foreach ($d in @($Hardware.Storage)) { if ($d.SerialNumber) { $rows += [pscustomobject]@{Type='Storage';Serial=[string]$d.SerialNumber} }
+    foreach ($d in @($Hardware.Storage)) { if ($d.SerialNumber) { $rows += [pscustomobject]@{Type='Storage';Serial=[string]$d.SerialNumber} } }
     if ($Physical.CpuAtpo) { $rows += [pscustomobject]@{Type='CPU-ATPO';Serial=[string]$Physical.CpuAtpo} }
     if ($Physical.PsuSerial) { $rows += [pscustomobject]@{Type='PSU';Serial=[string]$Physical.PsuSerial} }
     if ($Physical.Seal1) { $rows += [pscustomobject]@{Type='Seal';Serial=[string]$Physical.Seal1} }
