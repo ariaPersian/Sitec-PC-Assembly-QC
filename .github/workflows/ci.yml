@@ -2,11 +2,13 @@ name: validate
 on:
   push:
   pull_request:
+
 jobs:
-  powershell-parse:
+  validate-and-package:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Parse all PowerShell files with Windows PowerShell 5.1
         shell: powershell
         run: |
@@ -21,6 +23,7 @@ jobs:
             }
           }
           if ($failed) { exit 1 }
+
       - name: Validate JSON profiles and settings
         shell: powershell
         run: |
@@ -28,6 +31,7 @@ jobs:
             Get-Content $_.FullName -Raw | ConvertFrom-Json | Out-Null
             Write-Host "OK $($_.FullName)"
           }
+
       - name: Validate XAML parses
         shell: powershell
         run: |
@@ -36,3 +40,62 @@ jobs:
           $reader = New-Object System.Xml.XmlNodeReader $x
           $w = [Windows.Markup.XamlReader]::Load($reader)
           if (-not $w) { throw 'XAML did not load' }
+
+      - name: Run Windows PowerShell runtime smoke tests
+        shell: powershell
+        run: .\tests\Runtime.Tests.ps1
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Prepare embedded offline payload
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+          $stage=Join-Path $env:RUNNER_TEMP 'SitecQC-payload'
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          @('Start-SitecQC.ps1','Invoke-SitecQC.ps1','Verify-SitecQC.ps1','src','ui','config','profiles','tools','THIRD-PARTY-NOTICES.md') | ForEach-Object {
+            Copy-Item -LiteralPath $_ -Destination $stage -Recurse -Force
+          }
+
+          $temp=Join-Path $env:RUNNER_TEMP 'SitecQC-deps'
+          New-Item -ItemType Directory -Path $temp -Force | Out-Null
+
+          $diskZip=Join-Path $temp 'DiskSpd.zip'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/microsoft/diskspd/releases/latest/download/DiskSpd.zip' -OutFile $diskZip
+          $diskExtract=Join-Path $temp 'diskspd'
+          Expand-Archive -LiteralPath $diskZip -DestinationPath $diskExtract -Force
+          $disk=Get-ChildItem -LiteralPath $diskExtract -Filter diskspd.exe -Recurse | Where-Object { $_.FullName -match 'amd64|x64' } | Select-Object -First 1
+          if (-not $disk) { throw 'DiskSpd x64 executable was not found.' }
+          New-Item -ItemType Directory -Path (Join-Path $stage 'tools\bin') -Force | Out-Null
+          Copy-Item -LiteralPath $disk.FullName -Destination (Join-Path $stage 'tools\bin\diskspd.exe') -Force
+
+          $lhmZip=Join-Path $temp 'LibreHardwareMonitor.zip'
+          Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/releases/download/v0.9.6/LibreHardwareMonitor.zip' -OutFile $lhmZip
+          $lhmRoot=Join-Path $stage 'tools\librehardwaremonitor'
+          if (Test-Path $lhmRoot) { Remove-Item $lhmRoot -Recurse -Force }
+          New-Item -ItemType Directory -Path $lhmRoot -Force | Out-Null
+          Expand-Archive -LiteralPath $lhmZip -DestinationPath $lhmRoot -Force
+          $dll=Get-ChildItem -LiteralPath $lhmRoot -Filter LibreHardwareMonitorLib.dll -Recurse | Select-Object -First 1
+          if (-not $dll) { throw 'LibreHardwareMonitorLib.dll was not found.' }
+          if ($dll.DirectoryName -ne $lhmRoot) { Get-ChildItem -LiteralPath $dll.DirectoryName -File | Copy-Item -Destination $lhmRoot -Force }
+
+          $payload=Join-Path $PWD 'launcher\payload.zip'
+          if (Test-Path $payload) { Remove-Item $payload -Force }
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $payload -CompressionLevel Optimal
+
+      - name: Publish self-contained SitecQC.exe
+        shell: powershell
+        run: |
+          dotnet publish .\launcher\SitecQC.Launcher.csproj -c Release -r win-x64 --self-contained true -o .\dist
+          if (-not (Test-Path .\dist\SitecQC.exe)) { throw 'SitecQC.exe was not produced.' }
+
+      - name: Upload operator executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: SitecQC-Windows-x64
+          path: dist/SitecQC.exe
+          if-no-files-found: error

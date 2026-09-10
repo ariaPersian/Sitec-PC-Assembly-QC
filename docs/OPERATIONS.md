@@ -1,93 +1,119 @@
 # Production Operations Guide
 
-## 1. Prepare the QC station image
+## 1. Production package
 
-Copy this repository to a fixed path such as `C:\Sitec-PC-Assembly-QC`. Run `tools\Install-Dependencies.ps1` once while Internet access is available. The script downloads Microsoft DiskSpd from the official GitHub release and LibreHardwareMonitor v0.9.6 from the official release.
+Use the GitHub Actions artifact `SitecQC-Windows-x64`, which contains the self-contained `SitecQC.exe` operator application. The production executable embeds the approved application payload plus Microsoft DiskSpd and LibreHardwareMonitor release files prepared by CI.
 
-For a fully offline assembly floor, perform that download on the master Windows image before cloning the image to the 180 PCs, or keep the repository and `tools` folder on a trusted USB/network share.
+Normal assembly operators run **only `SitecQC.exe`**. They do not run `tools\Install-Dependencies.ps1`, `Start-SitecQC.ps1`, or other repository scripts. Those files remain for development and support.
 
-## 2. Choose the evidence root
+The executable requests Administrator elevation, expands its versioned internal payload under `%ProgramData%\SitecQC\App\<version>`, and opens the QC interface. No .NET SDK or separate dependency-install step is required on the production machine.
 
-The default is `C:\SitecQC-Data`. For stronger evidence retention, change `DataRoot` in `config\appsettings.json` to a restricted network share, for example:
+## 2. Evidence root
+
+The default evidence root is:
+
+```text
+C:\SitecQC-Data
+```
+
+For stronger evidence retention, a later deployment profile may point `DataRoot` at a restricted network share such as:
 
 ```text
 \\FILESERVER\QC-Evidence
 ```
 
-Give assembly operators create/write permissions but restrict deletion/administrative access where possible. Back up this share.
+Operators should have only the permissions required to create/write records. Restrict deletion and administrative access where possible and back up the evidence store.
 
-## 3. Labeling convention
+## 3. Automatic identity collection
 
-Use one immutable asset identifier per case:
+On startup the application automatically collects the information that Windows/SMBIOS can expose: motherboard, CPU, each RAM module, SSD/NVMe, BIOS, graphics, network, Windows information, System UUID, device errors, storage reliability data when supported, and SMBIOS system-enclosure serial/asset tag when meaningful values exist.
 
-```text
-PC-001 ... PC-180
-```
+The application also assigns a persistent Asset ID automatically if no physical Asset ID has already been scanned. Priority is:
 
-Print the same ID on the chassis and on the packing documentation. Do not reuse an Asset ID after a case has been finalized.
+1. meaningful SMBIOS enclosure asset tag
+2. stable token derived from SMBIOS System UUID
+3. motherboard serial fallback
+4. generated persistent GUID-based token as final fallback
 
-## 4. Scan sequence before closing the case
+The generated value is persisted under `%ProgramData%\SitecQC\asset-id.txt` so repeated runs on the same assembled PC keep the same identity.
 
-1. Asset ID
-2. CPU ATPO
-3. PSU serial
-4. CPU cooler model/identifier
-5. Seal #1
-6. Optional Seal #2
+If the organization requires human-readable fleet numbers such as `PC-001` through `PC-180`, use preprinted serialized asset labels or a central coordinated allocator. Scan that label into Asset ID to override the automatic identifier. Do not let multiple isolated PCs independently allocate a shared numeric sequence.
 
-Then close the case, photograph the final internal assembly if required, install the serialized tamper seal(s), and put the photos in the run `photos` folder if they are required as evidence.
+## 4. Physical-only identity capture
 
-## 5. Run QC
+Some values do not have a reliable Windows-readable identity channel and must be captured physically:
 
-Start `Start-SitecQC.ps1` as administrator. Use **Detect Hardware** for a quick preview, then **RUN FULL QC + FINALIZE**.
+- **PSU serial:** scan the manufacturer serial/barcode from the PSU or its controlled packaging before/while assembly.
+- **CPU ATPO:** scan the Intel processor full ATPO from the processor 2D matrix or boxed-processor label before the cooler hides the processor markings.
+- **Tamper seals:** scan the serialized tamper-evident seal IDs when installed. The supplied profile requires Seal #1; Seal #2 is optional.
 
-The production workload is deliberately short: WinSAT CPU/memory assessments, 30 seconds CPU stress, 1 GB deterministic memory verification, DiskSpd storage tests, sensors where available, and WHEA capture.
+A USB barcode/2D scanner is preferred over typing. The GUI moves automatically through PSU Serial → CPU ATPO → Seal #1 → Seal #2 when the scanner sends Enter.
 
-DiskSpd writes only to its temporary test file and deletes it after completion; it never targets a raw physical drive. Do not modify the DiskSpd target in the source to `#0`, `#1`, etc. unless you explicitly intend destructive raw-disk testing.
+The CPU cooler model is **not an operator-entry field** when the batch uses one approved cooler. Configure it once in the expected-BOM profile (`Expected.CpuCoolerModel`). If the value has not yet been supplied, it remains optional and the customer report omits the empty field.
 
-## 6. PASS/FAIL policy
+## 5. Normal operator procedure
 
-A normal PASS requires expected-BOM identity to match, required serial/physical fields to be present, zero duplicate serials, CPU/memory stress success, zero memory verification mismatches, zero WHEA hardware errors, and storage results above the profile's conservative minimum thresholds when DiskSpd is installed.
+1. Double-click `SitecQC.exe` and approve UAC.
+2. Confirm the automatically detected hardware/Asset ID; scan a preprinted Asset ID only if your fleet uses one.
+3. Scan the required physical identifiers shown by the profile (normally PSU Serial, CPU ATPO, Seal #1; optional Seal #2).
+4. Click **RUN FULL QC + FINALIZE**.
+5. Wait for PASS/FAIL and open/print the generated certificate if needed.
 
-WinSAT score thresholds are warnings by default because the exact score can vary between Windows builds and power states. DiskSpd thresholds are hard failures in the supplied i7-14700K/990 PRO profile because they are set well below normal PCIe 4.0 990 PRO performance and are intended to catch severe misconfiguration or a wrong/underperforming device.
+Hardware discovery occurs automatically on application startup; **Refresh Hardware** is only for re-reading the machine after a physical/configuration change.
 
-If the exact production BOM changes, clone the JSON profile and increment `ProfileVersion`; do not silently edit historical manifests.
+## 6. QC workload
 
-## 7. Baseline and tamper verification
+The production workflow runs expected-BOM validation, WinSAT CPU/memory assessment, CPU stress, deterministic memory verification, DiskSpd storage testing, sensor capture when supported, and WHEA hardware-error capture during the QC window.
 
-The first PASS for an Asset ID creates `Assets\<AssetId>\Baseline\hardware-qc-manifest.json`. The worker does not overwrite an existing baseline automatically.
+DiskSpd targets only its temporary test file and removes it after the workload. The production implementation does not intentionally target a raw physical disk.
 
-Later, run:
+The short default workload is designed for production throughput. Duration and thresholds remain versioned configuration so a later validation policy can increase burn-in time without changing the operator procedure.
 
-```powershell
-.\Verify-SitecQC.ps1 -AssetId PC-001 -DataRoot "\\FILESERVER\QC-Evidence"
-```
+## 7. PASS/FAIL policy
 
-The verifier recollects motherboard, CPU, RAM, SSD and BIOS information and compares identity sets with the original baseline. Physical CPU ATPO/PSU/seal identifiers can also be supplied when physically inspected.
+A normal PASS requires the versioned expected BOM to match, required physical identity fields to be present, duplicate serial checks to pass, CPU/memory workload success, zero deterministic-memory mismatches, zero WHEA hardware errors, and required storage checks to pass.
 
-A BIOS version change is reported as `CHANGED`; this does not prove malicious tampering by itself because legitimate firmware maintenance can change BIOS. Serial changes are much stronger evidence of component replacement.
+WinSAT performance thresholds remain advisory where normal Windows/power-state variation can affect the number. DiskSpd thresholds in the supplied i7-14700K/990 PRO profile are intentionally conservative and are intended to catch severe misconfiguration, wrong devices, or major underperformance rather than rank machines.
 
-## 8. PassMark coexistence
+If the exact production BOM changes, create/update a versioned profile deliberately. Historical manifests keep the profile/version recorded at test time.
 
-If BurnInTest remains in the process, configure BurnInTest to save HTML/PDF/text results to a fixed folder and set that folder in `config\appsettings.json` under `PassMark.ReportDirectory`. For evidence integrity, report filenames must contain the Asset ID (for example `PC-001-BurnInTest.pdf`); only matching, recent files are copied into the current run and referenced in the merged customer certificate.
+## 8. Customer report behavior
 
-Sitec QC remains the authoritative hardware/identity manifest and fleet index; PassMark is supporting stress-test evidence.
+The customer HTML/PDF report is data-driven rather than a fixed blank form. Optional properties, columns, and sections are rendered only when actual data exists. Examples include storage reliability counters, sensor measurements, enclosure fields, optional Seal #2, CPU cooler model, and PassMark supporting evidence.
 
-## 9. Digital signature
+Required identity evidence that is absent is not silently hidden: validation shows it as `Missing` and the QC result fails. The complete machine-readable manifest keeps all collected evidence regardless of whether every field is useful in the customer-facing layout.
 
-`hashes.sha256` provides change detection, but hashes can be regenerated by someone with write access. For stronger evidence, run `tools\New-SigningCertificate.ps1` on an authorized QC station and put its thumbprint in `Security.SigningCertificateThumbprint`.
+## 9. Baseline and tamper verification
 
-For production governance, protect and back up the signing private key. Do not leave the signing private key on systems after they are delivered to customers.
-
-## 10. Output per asset
+The first PASS for an Asset ID creates:
 
 ```text
-Assets\PC-001\
+Assets\<AssetId>\Baseline\hardware-qc-manifest.json
+```
+
+The worker does not overwrite an existing baseline automatically. Subsequent verification can compare motherboard serial, CPU identity, RAM serial set, storage serial set, BIOS and other captured identity against that baseline. A BIOS change alone does not prove tampering; component serial replacement and broken/mismatched physical seals provide stronger evidence.
+
+The repository's `Verify-SitecQC.ps1` remains an administrative/support tool. A future GUI release can expose baseline verification behind the same `SitecQC.exe` so delivered operators never need a separate script.
+
+## 10. PassMark coexistence and future benchmark adapters
+
+PassMark BurnInTest remains optional supporting evidence. When configured by support/administration, recent matching reports whose filename contains the Asset ID are copied into the run evidence and referenced by the merged report.
+
+Sitec QC remains the authoritative hardware/identity manifest and fleet index. Benchmark engines are adapters behind that workflow; introducing an additional engine such as Phoronix Test Suite must not create a second operator procedure or require the operator to manage separate report paths.
+
+## 11. Evidence integrity
+
+`hashes.sha256` and the manifest SHA-256 provide change detection. For authenticity beyond a mutable hash file, configure the existing RSA/SHA-256 signing capability on an authorized QC environment and protect the signing private key. Do not leave private signing material on PCs after delivery.
+
+## 12. Output per asset
+
+```text
+Assets\<AssetId>\
   Baseline\
     hardware-qc-manifest.json
     hardware-qc-manifest.sha256
     [signature/certificate]
-  Runs\PC-001-YYYYMMDD-HHMMSS\
+  Runs\<AssetId>-YYYYMMDD-HHMMSS\
     hardware-qc-manifest.json
     hardware-qc-manifest.sha256
     QC-Certificate.html
@@ -102,4 +128,4 @@ Assets\PC-001\
     photos\...
 ```
 
-The fleet-level files `fleet-runs.csv` and `fleet-serial-index.csv` make duplicate detection and batch inventory possible without a database server.
+The fleet-level `fleet-runs.csv` and `fleet-serial-index.csv` files support duplicate detection and batch inventory without requiring a separate database server.

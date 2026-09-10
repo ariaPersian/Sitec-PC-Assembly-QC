@@ -52,6 +52,7 @@ function Get-SitecHardwareInventory {
     $cpu = Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1
     $bios = Get-CimInstance Win32_BIOS -ErrorAction Stop | Select-Object -First 1
     $csProduct = Get-CimInstance Win32_ComputerSystemProduct -ErrorAction SilentlyContinue | Select-Object -First 1
+    $enclosure = Get-CimInstance Win32_SystemEnclosure -ErrorAction SilentlyContinue | Select-Object -First 1
     $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
 
     $ram = @()
@@ -156,7 +157,14 @@ function Get-SitecHardwareInventory {
     [pscustomobject]@{
         CollectedAt = (Get-Date).ToString('o')
         ComputerName = $env:COMPUTERNAME
-        SystemUUID = $csProduct.UUID
+        SystemUUID = ConvertTo-SitecTrimmedString $csProduct.UUID
+        SystemEnclosure = [pscustomobject]@{
+            Manufacturer = ConvertTo-SitecTrimmedString $enclosure.Manufacturer
+            SerialNumber = ConvertTo-SitecTrimmedString $enclosure.SerialNumber
+            SMBIOSAssetTag = ConvertTo-SitecTrimmedString $enclosure.SMBIOSAssetTag
+            PartNumber = ConvertTo-SitecTrimmedString $enclosure.PartNumber
+            ChassisTypes = @($enclosure.ChassisTypes)
+        }
         Motherboard = [pscustomobject]@{
             Manufacturer = $board.Manufacturer
             Model = $board.Product
