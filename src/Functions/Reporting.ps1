@@ -23,7 +23,7 @@ function Get-SitecStatusClass {
 
 function Get-SitecMaxTemperature {
     param($Sensors,[string]$HardwareTypeContains)
-    $temps = @($Sensors | Where-Object {
+    $temps=@($Sensors | Where-Object {
         $_.SensorType -eq 'Temperature' -and
         $_.Hardware -like ('*' + $HardwareTypeContains + '*') -and
         $null -ne $_.Max
@@ -36,6 +36,7 @@ function New-SitecPropertySection {
     param([Parameter(Mandatory)][string]$Title,[Parameter(Mandatory)]$Items)
     $usable=@($Items | Where-Object { Test-SitecReportValue $_.Value })
     if ($usable.Count -eq 0) { return '' }
+
     $rows=''
     for ($i=0;$i -lt $usable.Count;$i+=2) {
         $a=$usable[$i]
@@ -45,9 +46,9 @@ function New-SitecPropertySection {
             $b=$usable[$i+1]
             $right='<th>{0}</th><td>{1}</td>' -f (ConvertTo-SitecHtml $b.Label),(ConvertTo-SitecHtml $b.Value)
         }
-        $rows += '<tr>' + $left + $right + '</tr>'
+        $rows += '<tr>'+$left+$right+'</tr>'
     }
-    '<section><h2>' + (ConvertTo-SitecHtml $Title) + '</h2><table><tbody>' + $rows + '</tbody></table></section>'
+    '<section><h2>'+(ConvertTo-SitecHtml $Title)+'</h2><table><tbody>'+$rows+'</tbody></table></section>'
 }
 
 function New-SitecObjectTableSection {
@@ -70,17 +71,17 @@ function New-SitecObjectTableSection {
     }
     if ($active.Count -eq 0) { return '' }
 
-    $head='<tr>' + (($active | ForEach-Object { '<th>' + (ConvertTo-SitecHtml $_.Label) + '</th>' }) -join '') + '</tr>'
+    $head='<tr>'+(($active | ForEach-Object { '<th>'+(ConvertTo-SitecHtml $_.Label)+'</th>' }) -join '')+'</tr>'
     $body=''
     foreach ($row in $rowsArray) {
         $cells=''
         foreach ($column in $active) {
             $value=& $column.Getter $row
-            $cells += '<td>' + (ConvertTo-SitecHtml $value) + '</td>'
+            $cells += '<td>'+(ConvertTo-SitecHtml $value)+'</td>'
         }
-        $body += '<tr>' + $cells + '</tr>'
+        $body += '<tr>'+$cells+'</tr>'
     }
-    '<section><h2>' + (ConvertTo-SitecHtml $Title) + '</h2><table><thead>' + $head + '</thead><tbody>' + $body + '</tbody></table></section>'
+    '<section><h2>'+(ConvertTo-SitecHtml $Title)+'</h2><table><thead>'+$head+'</thead><tbody>'+$body+'</tbody></table></section>'
 }
 
 function Import-SitecPassMarkEvidence {
@@ -90,14 +91,14 @@ function Import-SitecPassMarkEvidence {
         [Parameter(Mandatory)][datetime]$Since,
         [Parameter(Mandatory)][string]$AssetId
     )
-    $dest = Join-Path $RunPath 'passmark'
+    $dest=Join-Path $RunPath 'passmark'
     New-Item -ItemType Directory -Path $dest -Force | Out-Null
     if (-not $Context.Settings.PassMark -or -not $Context.Settings.PassMark.Enabled) { return @() }
-    $source = [string]$Context.Settings.PassMark.ReportDirectory
+    $source=[string]$Context.Settings.PassMark.ReportDirectory
     if ([string]::IsNullOrWhiteSpace($source) -or -not (Test-Path -LiteralPath $source)) { return @() }
-    $minDate = $Since.AddMinutes(-[int]$Context.Settings.PassMark.MaxReportAgeMinutes)
-    $pattern = '*' + $AssetId + '*'
-    $files = @(Get-ChildItem -LiteralPath $source -File -ErrorAction SilentlyContinue | Where-Object {
+    $minDate=$Since.AddMinutes(-[int]$Context.Settings.PassMark.MaxReportAgeMinutes)
+    $pattern='*'+$AssetId+'*'
+    $files=@(Get-ChildItem -LiteralPath $source -File -ErrorAction SilentlyContinue | Where-Object {
         $_.LastWriteTime -ge $minDate -and
         $_.Extension -in '.html','.htm','.pdf','.txt','.log' -and
         $_.BaseName -like $pattern
@@ -110,16 +111,16 @@ function Import-SitecPassMarkEvidence {
 
 function Convert-SitecHtmlToPdf {
     param([Parameter(Mandatory)][string]$HtmlPath,[Parameter(Mandatory)][string]$PdfPath)
-    $edgeCandidates = @(
+    $edgeCandidates=@(
         (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
         (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')
     ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-    $edge = $edgeCandidates | Select-Object -First 1
+    $edge=$edgeCandidates | Select-Object -First 1
     if (-not $edge) { return $false }
-    $uri = (New-Object System.Uri($HtmlPath)).AbsoluteUri
-    $arguments = '--headless --disable-gpu --no-pdf-header-footer --print-to-pdf="{0}" "{1}"' -f $PdfPath,$uri
-    $p = Start-Process -FilePath $edge -ArgumentList $arguments -WindowStyle Hidden -PassThru
-    $null = $p.WaitForExit(60000)
+    $uri=(New-Object System.Uri($HtmlPath)).AbsoluteUri
+    $arguments='--headless --disable-gpu --no-pdf-header-footer --print-to-pdf="{0}" "{1}"' -f $PdfPath,$uri
+    $process=Start-Process -FilePath $edge -ArgumentList $arguments -WindowStyle Hidden -PassThru
+    $null=$process.WaitForExit(60000)
     Test-Path -LiteralPath $PdfPath
 }
 
@@ -127,11 +128,11 @@ function New-SitecCustomerReport {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Run,[Parameter(Mandatory)][string]$RunPath,[Parameter(Mandatory)]$Context)
 
-    $reportPath = Join-Path $RunPath 'QC-Certificate.html'
-    $pdfPath = Join-Path $RunPath 'QC-Certificate.pdf'
-    $h = $Run.Hardware
-    $p = $Run.Physical
-    $b = $Run.Benchmark
+    $reportPath=Join-Path $RunPath 'QC-Certificate.html'
+    $pdfPath=Join-Path $RunPath 'QC-Certificate.pdf'
+    $h=$Run.Hardware
+    $p=$Run.Physical
+    $b=$Run.Benchmark
 
     $assemblyItems=@(
         [pscustomobject]@{Label='Case';Value=$p.CaseModel},
@@ -144,18 +145,28 @@ function New-SitecCustomerReport {
     )
     $assemblySection=New-SitecPropertySection -Title 'Assembly Identity' -Items $assemblyItems
 
+    $boardText=(@($h.Motherboard.Manufacturer,$h.Motherboard.Model) | Where-Object { Test-SitecReportValue $_ }) -join ' '
+    $coresThreads=''
+    if ($null -ne $h.CPU.Cores -and $null -ne $h.CPU.LogicalProcessors) { $coresThreads="$($h.CPU.Cores) / $($h.CPU.LogicalProcessors)" }
+    $chassisSerial=''
+    $smbiosAssetTag=''
+    if ($h.PSObject.Properties['SystemEnclosure'] -and $null -ne $h.SystemEnclosure) {
+        $chassisSerial=[string]$h.SystemEnclosure.SerialNumber
+        $smbiosAssetTag=[string]$h.SystemEnclosure.SMBIOSAssetTag
+    }
+
     $detectedItems=@(
-        [pscustomobject]@{Label='Motherboard';Value=(($h.Motherboard.Manufacturer,$h.Motherboard.Model | Where-Object { Test-SitecReportValue $_ }) -join ' ')},
+        [pscustomobject]@{Label='Motherboard';Value=$boardText},
         [pscustomobject]@{Label='Motherboard Serial';Value=$h.Motherboard.SerialNumber},
         [pscustomobject]@{Label='CPU';Value=$h.CPU.Model},
-        [pscustomobject]@{Label='Cores / Threads';Value=(if ($null -ne $h.CPU.Cores -and $null -ne $h.CPU.LogicalProcessors) { "$($h.CPU.Cores) / $($h.CPU.LogicalProcessors)" } else { '' })},
+        [pscustomobject]@{Label='Cores / Threads';Value=$coresThreads},
         [pscustomobject]@{Label='BIOS';Value=$h.BIOS.Version},
         [pscustomobject]@{Label='BIOS Date';Value=$h.BIOS.ReleaseDate},
         [pscustomobject]@{Label='Windows';Value=$h.Windows.Caption},
         [pscustomobject]@{Label='Windows Build';Value=$h.Windows.Build},
         [pscustomobject]@{Label='System UUID';Value=$h.SystemUUID},
-        [pscustomobject]@{Label='Chassis Serial';Value=(if ($h.PSObject.Properties['SystemEnclosure']) {$h.SystemEnclosure.SerialNumber}else{''})},
-        [pscustomobject]@{Label='SMBIOS Asset Tag';Value=(if ($h.PSObject.Properties['SystemEnclosure']) {$h.SystemEnclosure.SMBIOSAssetTag}else{''})}
+        [pscustomobject]@{Label='Chassis Serial';Value=$chassisSerial},
+        [pscustomobject]@{Label='SMBIOS Asset Tag';Value=$smbiosAssetTag}
     )
     $detectedSection=New-SitecPropertySection -Title 'Detected Hardware' -Items $detectedItems
 
@@ -164,18 +175,18 @@ function New-SitecCustomerReport {
         [pscustomobject]@{Label='Manufacturer';Getter={param($x)$x.Manufacturer}},
         [pscustomobject]@{Label='Part Number';Getter={param($x)$x.PartNumber}},
         [pscustomobject]@{Label='Serial';Getter={param($x)$x.SerialNumber}},
-        [pscustomobject]@{Label='Capacity';Getter={param($x)if($null -ne $x.CapacityGB){"$($x.CapacityGB) GB"}else{''}}},
+        [pscustomobject]@{Label='Capacity';Getter={param($x) if($null -ne $x.CapacityGB){"$($x.CapacityGB) GB"}else{''}}},
         [pscustomobject]@{Label='Type';Getter={param($x)$x.Type}},
-        [pscustomobject]@{Label='Rated Speed';Getter={param($x)if($x.RatedSpeedMHz){"$($x.RatedSpeedMHz) MHz"}else{''}}},
-        [pscustomobject]@{Label='Configured Speed';Getter={param($x)if($x.ConfiguredSpeedMHz){"$($x.ConfiguredSpeedMHz) MHz"}else{''}}},
-        [pscustomobject]@{Label='Voltage';Getter={param($x)if($x.ConfiguredVoltage_mV){"$($x.ConfiguredVoltage_mV) mV"}else{''}}}
+        [pscustomobject]@{Label='Rated Speed';Getter={param($x) if($x.RatedSpeedMHz){"$($x.RatedSpeedMHz) MHz"}else{''}}},
+        [pscustomobject]@{Label='Configured Speed';Getter={param($x) if($x.ConfiguredSpeedMHz){"$($x.ConfiguredSpeedMHz) MHz"}else{''}}},
+        [pscustomobject]@{Label='Voltage';Getter={param($x) if($x.ConfiguredVoltage_mV){"$($x.ConfiguredVoltage_mV) mV"}else{''}}}
     )
     $ramSection=New-SitecObjectTableSection -Title 'Memory Modules' -Rows $h.Memory -Columns $ramColumns
 
     $diskColumns=@(
         [pscustomobject]@{Label='Model';Getter={param($x)$x.Model}},
         [pscustomobject]@{Label='Serial';Getter={param($x)$x.SerialNumber}},
-        [pscustomobject]@{Label='Capacity';Getter={param($x)if($null -ne $x.SizeGB){"$($x.SizeGB) GB"}else{''}}},
+        [pscustomobject]@{Label='Capacity';Getter={param($x) if($null -ne $x.SizeGB){"$($x.SizeGB) GB"}else{''}}},
         [pscustomobject]@{Label='Firmware';Getter={param($x)$x.FirmwareVersion}},
         [pscustomobject]@{Label='Media';Getter={param($x)$x.MediaType}},
         [pscustomobject]@{Label='Bus';Getter={param($x)$x.BusType}},
@@ -188,22 +199,25 @@ function New-SitecCustomerReport {
         if ($disk.Reliability -and $disk.Reliability.Available) {
             $r=$disk.Reliability
             if ($null -ne $r.TemperatureC -or $null -ne $r.TemperatureMaxC -or $null -ne $r.PowerOnHours -or $null -ne $r.WearPercent -or $null -ne $r.ReadErrorsTotal -or $null -ne $r.WriteErrorsTotal) {
-                $healthRows += [pscustomobject]@{Model=$disk.Model;TemperatureC=$r.TemperatureC;TemperatureMaxC=$r.TemperatureMaxC;PowerOnHours=$r.PowerOnHours;WearPercent=$r.WearPercent;ReadErrorsTotal=$r.ReadErrorsTotal;WriteErrorsTotal=$r.WriteErrorsTotal}
+                $healthRows += [pscustomobject]@{
+                    Model=$disk.Model;TemperatureC=$r.TemperatureC;TemperatureMaxC=$r.TemperatureMaxC;
+                    PowerOnHours=$r.PowerOnHours;WearPercent=$r.WearPercent;ReadErrorsTotal=$r.ReadErrorsTotal;WriteErrorsTotal=$r.WriteErrorsTotal
+                }
             }
         }
     }
     $healthColumns=@(
         [pscustomobject]@{Label='Model';Getter={param($x)$x.Model}},
-        [pscustomobject]@{Label='Temperature';Getter={param($x)if($null -ne $x.TemperatureC){"$($x.TemperatureC) C"}else{''}}},
-        [pscustomobject]@{Label='Max Temperature';Getter={param($x)if($null -ne $x.TemperatureMaxC){"$($x.TemperatureMaxC) C"}else{''}}},
+        [pscustomobject]@{Label='Temperature';Getter={param($x) if($null -ne $x.TemperatureC){"$($x.TemperatureC) C"}else{''}}},
+        [pscustomobject]@{Label='Max Temperature';Getter={param($x) if($null -ne $x.TemperatureMaxC){"$($x.TemperatureMaxC) C"}else{''}}},
         [pscustomobject]@{Label='Power-On Hours';Getter={param($x)$x.PowerOnHours}},
-        [pscustomobject]@{Label='Wear';Getter={param($x)if($null -ne $x.WearPercent){"$($x.WearPercent)%"}else{''}}},
+        [pscustomobject]@{Label='Wear';Getter={param($x) if($null -ne $x.WearPercent){"$($x.WearPercent)%"}else{''}}},
         [pscustomobject]@{Label='Read Errors';Getter={param($x)$x.ReadErrorsTotal}},
         [pscustomobject]@{Label='Write Errors';Getter={param($x)$x.WriteErrorsTotal}}
     )
     $healthSection=New-SitecObjectTableSection -Title 'Storage Reliability' -Rows $healthRows -Columns $healthColumns
 
-    $cpuTemp = Get-SitecMaxTemperature -Sensors $b.Stress.Sensors -HardwareTypeContains 'CPU'
+    $cpuTemp=Get-SitecMaxTemperature -Sensors $b.Stress.Sensors -HardwareTypeContains 'CPU'
     $benchmarkItems=@()
     if ($b.WinSAT.Available) {
         $benchmarkItems += [pscustomobject]@{Label='WinSAT';Value=$b.WinSAT.Status}
@@ -224,14 +238,16 @@ function New-SitecCustomerReport {
     $benchmarkSection=New-SitecPropertySection -Title 'Benchmark Summary' -Items $benchmarkItems
 
     $bomRows=@($Run.BomValidation.Checks | ForEach-Object {
-        $actual=if (Test-SitecReportValue $_.Actual) {[string]$_.Actual}else{'Missing'}
+        $actual='Missing'
+        if (Test-SitecReportValue $_.Actual) { $actual=[string]$_.Actual }
         '<tr><td>{0}</td><td>{1}</td><td>{2}</td><td><span class="badge {3}">{4}</span></td></tr>' -f
             (ConvertTo-SitecHtml $_.Name),(ConvertTo-SitecHtml $_.Expected),(ConvertTo-SitecHtml $actual),(Get-SitecStatusClass $_.Status),(ConvertTo-SitecHtml $_.Status)
     }) -join [Environment]::NewLine
     $bomSection='<section><h2>BOM Validation</h2><table><thead><tr><th>Check</th><th>Expected</th><th>Actual</th><th>Status</th></tr></thead><tbody>'+$bomRows+'</tbody></table></section>'
 
     $benchRows=@($Run.BenchmarkValidation.Checks | ForEach-Object {
-        $actual=if (Test-SitecReportValue $_.Actual) {[string]$_.Actual}else{'Missing'}
+        $actual='Missing'
+        if (Test-SitecReportValue $_.Actual) { $actual=[string]$_.Actual }
         '<tr><td>{0}</td><td>{1}</td><td>{2}</td><td><span class="badge {3}">{4}</span></td></tr>' -f
             (ConvertTo-SitecHtml $_.Name),(ConvertTo-SitecHtml $_.Expected),(ConvertTo-SitecHtml $actual),(Get-SitecStatusClass $_.Status),(ConvertTo-SitecHtml $_.Status)
     }) -join [Environment]::NewLine
@@ -241,7 +257,8 @@ function New-SitecCustomerReport {
     $exceptionSection=''
     if ($exceptions.Count -gt 0) {
         $items=@($exceptions | ForEach-Object {
-            $actual=if (Test-SitecReportValue $_.Actual) {[string]$_.Actual}else{'Missing'}
+            $actual='Missing'
+            if (Test-SitecReportValue $_.Actual) { $actual=[string]$_.Actual }
             '<li><b>{0}</b>: {1} <span class="badge {2}">{3}</span></li>' -f (ConvertTo-SitecHtml $_.Name),(ConvertTo-SitecHtml $actual),(Get-SitecStatusClass $_.Status),(ConvertTo-SitecHtml $_.Status)
         }) -join ''
         $exceptionSection='<section><h2>Exceptions / Warnings</h2><ul>'+$items+'</ul></section>'
@@ -276,7 +293,8 @@ function New-SitecCustomerReport {
         $passmarkSection='<section><h2>PassMark Supporting Evidence</h2><ul>'+$items+'</ul></section>'
     }
 
-    $securityText=if ($Run.Security.Signed) {'RSA/SHA-256 signed — certificate '+(ConvertTo-SitecHtml $Run.Security.Thumbprint)} else {'SHA-256 evidence hash (unsigned)'}
+    $securityText='SHA-256 evidence hash (unsigned)'
+    if ($Run.Security.Signed) { $securityText='RSA/SHA-256 signed — certificate '+(ConvertTo-SitecHtml $Run.Security.Thumbprint) }
     $statusClass=Get-SitecStatusClass $Run.OverallStatus
 
     $html=@"
@@ -305,5 +323,5 @@ $passmarkSection
     Set-Content -LiteralPath $reportPath -Value $html -Encoding UTF8
     $pdf=$false
     if ($Context.Settings.Reporting.GeneratePdf) { $pdf=Convert-SitecHtmlToPdf -HtmlPath $reportPath -PdfPath $pdfPath }
-    [pscustomobject]@{HtmlPath=$reportPath;PdfPath=if($pdf){$pdfPath}else{$null}}
+    [pscustomobject]@{HtmlPath=$reportPath;PdfPath=$(if($pdf){$pdfPath}else{$null})}
 }
