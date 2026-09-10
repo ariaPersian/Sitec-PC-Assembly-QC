@@ -16,7 +16,7 @@
           <Grid>
             <Grid.ColumnDefinitions><ColumnDefinition Width="125"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <TextBlock Text="Asset ID" Grid.Row="0" Margin="0,7"/><TextBox x:Name="TxtAssetId" Grid.Row="0" Grid.Column="1" Height="30" Margin="4" ToolTip="Generated automatically. Scan/replace only if you already use a physical asset label."/>
+            <TextBlock Text="Asset ID" Grid.Row="0" Margin="0,7"/><TextBox x:Name="TxtAssetId" Grid.Row="0" Grid.Column="1" Height="30" Margin="4" ToolTip="Permanent identity of the complete PC in the SITEC inventory. It stays with the PC for its service life; it is not the tamper-seal number."/>
             <TextBlock Text="BOM profile" Grid.Row="1" Margin="0,7"/><TextBlock x:Name="TxtProfileDisplay" Grid.Row="1" Grid.Column="1" Margin="6,8" FontWeight="SemiBold" TextWrapping="Wrap"/>
             <TextBlock Text="Expected" Grid.Row="2" Margin="0,7"/><TextBlock x:Name="TxtExpectedSummary" Grid.Row="2" Grid.Column="1" Margin="6,8" Foreground="#445" TextWrapping="Wrap"/>
           </Grid>
@@ -24,14 +24,14 @@
 
         <GroupBox Header="Physical identity - scan only" Margin="0,0,0,10" Padding="10">
           <StackPanel>
-            <TextBlock Text="No separate utility is required. Scan the PSU label, Intel CPU 2D Matrix/ATPO and tamper seal directly here; Enter moves to the next field." Foreground="#667" TextWrapping="Wrap" Margin="0,0,0,8"/>
+            <TextBlock Text="Scan physical identifiers only. Asset ID identifies the PC; tamper-seal serial identifies the security seal attached to the chassis and may be replaced only through a documented service event." Foreground="#667" TextWrapping="Wrap" Margin="0,0,0,8"/>
             <Grid>
               <Grid.ColumnDefinitions><ColumnDefinition Width="125"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
               <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
               <TextBlock Text="PSU serial" Grid.Row="0" Margin="0,7"/><TextBox x:Name="TxtPsuSerial" Grid.Row="0" Grid.Column="1" Height="30" Margin="4"/>
-              <TextBlock Text="CPU 2D / ATPO" Grid.Row="1" Margin="0,7"/><TextBox x:Name="TxtCpuAtpo" Grid.Row="1" Grid.Column="1" Height="30" Margin="4" ToolTip="Scan the Intel processor 2D Matrix / full ATPO serial."/>
-              <TextBlock Text="Seal #1" Grid.Row="2" Margin="0,7"/><TextBox x:Name="TxtSeal1" Grid.Row="2" Grid.Column="1" Height="30" Margin="4"/>
-              <TextBlock Text="Seal #2" Grid.Row="3" Margin="0,7"/><TextBox x:Name="TxtSeal2" Grid.Row="3" Grid.Column="1" Height="30" Margin="4"/>
+              <TextBlock Text="CPU 2D / ATPO" Grid.Row="1" Margin="0,7"/><TextBox x:Name="TxtCpuAtpo" Grid.Row="1" Grid.Column="1" Height="30" Margin="4" ToolTip="Scan the Intel top/edge 2D Data Matrix. For 12th Gen and later desktop CPUs this decodes the full unique ATPO serial."/>
+              <TextBlock Text="Tamper seal #1" Grid.Row="2" Margin="0,7"/><TextBox x:Name="TxtSeal1" Grid.Row="2" Grid.Column="1" Height="30" Margin="4" ToolTip="Serial printed on the physical tamper-evident seal attached to the case."/>
+              <TextBlock Text="Tamper seal #2" Grid.Row="3" Margin="0,7"/><TextBox x:Name="TxtSeal2" Grid.Row="3" Grid.Column="1" Height="30" Margin="4" ToolTip="Optional second physical tamper-evident seal."/>
             </Grid>
           </StackPanel>
         </GroupBox>

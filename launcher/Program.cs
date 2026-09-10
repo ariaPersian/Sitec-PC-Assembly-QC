@@ -11,7 +11,7 @@ namespace SitecQC.Launcher;
 
 internal static class Program
 {
-    private const string AppVersion = "3.1.0";
+    private const string AppVersion = "3.2.0";
     private const string PayloadResource = "SitecQC.Payload.zip";
 
     [STAThread]
