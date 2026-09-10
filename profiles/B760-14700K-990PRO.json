@@ -1,7 +1,7 @@
 {
   "ProfileId": "B760-14700K-990PRO",
-  "ProfileVersion": 4,
-  "Description": "GREEN AVA+ / ASUS TUF B760-PLUS WIFI / Core i7-14700K / 16GB DDR5 / Samsung 990 PRO 1TB / GREEN GP700A-GED V3.1 / DeepCool AG400 PLUS / 15-minute concurrent burn-in",
+  "ProfileVersion": 5,
+  "Description": "GREEN AVA+ / ASUS TUF B760-PLUS WIFI / Core i7-14700K / 16GB DDR5 / Samsung 990 PRO 1TB / GREEN GP700A-GED V3.1 / DeepCool AG400 PLUS / bounded 8-minute concurrent production burn-in",
   "Expected": {
     "CaseModel": "GREEN AVA+",
     "PsuModel": "GREEN GP700A-GED V3.1 80PLUS BRONZE ATX3.1 700W",
