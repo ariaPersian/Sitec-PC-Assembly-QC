@@ -3,40 +3,64 @@
   <Grid Margin="18">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <Border Grid.Row="0" Background="#263746" CornerRadius="8" Padding="18" Margin="0,0,0,14">
-      <DockPanel><StackPanel><TextBlock Text="SITEC PC Assembly &amp; QC" FontSize="26" FontWeight="Bold" Foreground="White"/><TextBlock Text="Inventory • BOM Validation • Benchmark • WHEA • Evidence Certificate" Foreground="#D5E0E8"/></StackPanel><TextBlock x:Name="TxtHeaderStatus" Text="READY" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="22" FontWeight="Bold" Foreground="#A8E6BE"/></DockPanel>
+      <DockPanel>
+        <StackPanel><TextBlock Text="SITEC PC Assembly &amp; QC" FontSize="26" FontWeight="Bold" Foreground="White"/><TextBlock Text="Automatic Inventory • BOM Validation • Benchmark • WHEA • Evidence Certificate" Foreground="#D5E0E8"/></StackPanel>
+        <TextBlock x:Name="TxtHeaderStatus" Text="PREPARING" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="22" FontWeight="Bold" Foreground="#A8E6BE"/>
+      </DockPanel>
     </Border>
+
     <Grid Grid.Row="1">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="420"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <Grid.ColumnDefinitions><ColumnDefinition Width="390"/><ColumnDefinition Width="14"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
       <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto"><StackPanel>
-        <GroupBox Header="Job" Margin="0,0,0,10" Padding="10"><Grid>
-          <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-          <TextBlock Text="Asset ID" Grid.Row="0" Margin="0,6"/><TextBox x:Name="TxtAssetId" Grid.Row="0" Grid.Column="1" Height="28" Margin="4"/>
-          <TextBlock Text="Profile" Grid.Row="1" Margin="0,6"/><TextBox x:Name="TxtProfile" Grid.Row="1" Grid.Column="1" Height="28" Margin="4" Text="B760-14700K-990PRO"/>
-          <TextBlock Text="Operator" Grid.Row="2" Margin="0,6"/><TextBox x:Name="TxtOperator" Grid.Row="2" Grid.Column="1" Height="28" Margin="4"/>
-          <TextBlock Text="Data root" Grid.Row="3" Margin="0,6"/><TextBox x:Name="TxtDataRoot" Grid.Row="3" Grid.Column="1" Height="28" Margin="4"/>
-        </Grid></GroupBox>
-        <GroupBox Header="Physical identity / scan fields" Margin="0,0,0,10" Padding="10"><Grid>
-          <Grid.ColumnDefinitions><ColumnDefinition Width="130"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-          <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-          <TextBlock Text="Case" Grid.Row="0" Margin="0,6"/><TextBox x:Name="TxtCase" Grid.Row="0" Grid.Column="1" Height="28" Margin="4"/>
-          <TextBlock Text="PSU model" Grid.Row="1" Margin="0,6"/><TextBox x:Name="TxtPsuModel" Grid.Row="1" Grid.Column="1" Height="28" Margin="4"/>
-          <TextBlock Text="PSU serial" Grid.Row="2" Margin="0,6"/><TextBox x:Name="TxtPsuSerial" Grid.Row="2" Grid.Column="1" Height="28" Margin="4"/>
-          <TextBlock Text="CPU ATPO" Grid.Row="3" Margin="0,6"/><TextBox x:Name="TxtCpuAtpo" Grid.Row="3" Grid.Column="1" Height="28" Margin="4"/>
-          <TextBlock Text="CPU cooler" Grid.Row="4" Margin="0,6"/><TextBox x:Name="TxtCooler" Grid.Row="4" Grid.Column="1" Height="28" Margin="4"/>
-          <TextBlock Text="Seal #1" Grid.Row="5" Margin="0,6"/><TextBox x:Name="TxtSeal1" Grid.Row="5" Grid.Column="1" Height="28" Margin="4"/>
-          <TextBlock Text="Seal #2" Grid.Row="6" Margin="0,6"/><TextBox x:Name="TxtSeal2" Grid.Row="6" Grid.Column="1" Height="28" Margin="4"/>
-        </Grid></GroupBox>
-        <Button x:Name="BtnDetect" Content="Detect Hardware" Height="38" Margin="0,0,0,8"/>
+        <GroupBox Header="Unit identity" Margin="0,0,0,10" Padding="10">
+          <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <TextBlock Text="Asset ID" Grid.Row="0" Margin="0,7"/><TextBox x:Name="TxtAssetId" Grid.Row="0" Grid.Column="1" Height="30" Margin="4" ToolTip="Generated automatically. Scan/replace only if you already use a physical asset label."/>
+            <TextBlock Text="BOM profile" Grid.Row="1" Margin="0,7"/><TextBlock x:Name="TxtProfileDisplay" Grid.Row="1" Grid.Column="1" Margin="6,8" FontWeight="SemiBold" TextWrapping="Wrap"/>
+            <TextBlock Text="Expected" Grid.Row="2" Margin="0,7"/><TextBlock x:Name="TxtExpectedSummary" Grid.Row="2" Grid.Column="1" Margin="6,8" Foreground="#445" TextWrapping="Wrap"/>
+          </Grid>
+        </GroupBox>
+
+        <GroupBox Header="Physical identity — scan only" Margin="0,0,0,10" Padding="10">
+          <StackPanel>
+            <TextBlock Text="These values cannot be reliably read by Windows. Use a barcode/2D scanner; pressing Enter moves to the next scan." Foreground="#667" TextWrapping="Wrap" Margin="0,0,0,8"/>
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="120"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+              <TextBlock Text="PSU serial" Grid.Row="0" Margin="0,7"/><TextBox x:Name="TxtPsuSerial" Grid.Row="0" Grid.Column="1" Height="30" Margin="4"/>
+              <TextBlock Text="CPU ATPO" Grid.Row="1" Margin="0,7"/><TextBox x:Name="TxtCpuAtpo" Grid.Row="1" Grid.Column="1" Height="30" Margin="4"/>
+              <TextBlock Text="Seal #1" Grid.Row="2" Margin="0,7"/><TextBox x:Name="TxtSeal1" Grid.Row="2" Grid.Column="1" Height="30" Margin="4"/>
+              <TextBlock Text="Seal #2" Grid.Row="3" Margin="0,7"/><TextBox x:Name="TxtSeal2" Grid.Row="3" Grid.Column="1" Height="30" Margin="4"/>
+            </Grid>
+          </StackPanel>
+        </GroupBox>
+
+        <Expander Header="Advanced / support information" Margin="0,0,0,10">
+          <Border BorderBrush="#CCD5DB" BorderThickness="1" Padding="10" Margin="0,5,0,0">
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="100"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+              <TextBlock Text="Profile" Grid.Row="0" Margin="0,6"/><TextBox x:Name="TxtProfile" Grid.Row="0" Grid.Column="1" Height="28" Margin="4" IsReadOnly="True"/>
+              <TextBlock Text="Operator" Grid.Row="1" Margin="0,6"/><TextBox x:Name="TxtOperator" Grid.Row="1" Grid.Column="1" Height="28" Margin="4" IsReadOnly="True"/>
+              <TextBlock Text="Data root" Grid.Row="2" Margin="0,6"/><TextBox x:Name="TxtDataRoot" Grid.Row="2" Grid.Column="1" Height="28" Margin="4" IsReadOnly="True"/>
+            </Grid>
+          </Border>
+        </Expander>
+
+        <Button x:Name="BtnDetect" Content="Refresh Hardware" Height="38" Margin="0,0,0,8"/>
         <Button x:Name="BtnRun" Content="RUN FULL QC + FINALIZE" Height="52" FontWeight="Bold" FontSize="15" Background="#137C3D" Foreground="White"/>
       </StackPanel></ScrollViewer>
-      <Grid Grid.Column="2"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="230"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <GroupBox Header="Detected hardware" Grid.Row="0" Padding="10" Margin="0,0,0,10"><TextBox x:Name="TxtHardware" Height="175" IsReadOnly="True" FontFamily="Consolas" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/></GroupBox>
-        <GroupBox Header="QC progress" Grid.Row="1" Padding="10" Margin="0,0,0,10"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock x:Name="TxtStage" Text="Ready" FontSize="18" FontWeight="SemiBold"/><ProgressBar x:Name="ProgressQc" Grid.Row="1" Height="24" Minimum="0" Maximum="100" Value="0" Margin="0,8"/><TextBlock x:Name="TxtMessage" Grid.Row="2" TextWrapping="Wrap" Foreground="#445"/></Grid></GroupBox>
+
+      <Grid Grid.Column="2">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="230"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <GroupBox Header="Detected hardware" Grid.Row="0" Padding="10" Margin="0,0,0,10"><TextBox x:Name="TxtHardware" Height="190" IsReadOnly="True" FontFamily="Consolas" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/></GroupBox>
+        <GroupBox Header="QC progress" Grid.Row="1" Padding="10" Margin="0,0,0,10"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock x:Name="TxtStage" Text="Preparing" FontSize="18" FontWeight="SemiBold"/><ProgressBar x:Name="ProgressQc" Grid.Row="1" Height="24" Minimum="0" Maximum="100" Value="0" Margin="0,8"/><TextBlock x:Name="TxtMessage" Grid.Row="2" TextWrapping="Wrap" Foreground="#445"/></Grid></GroupBox>
         <TextBlock Grid.Row="2" Text="Worker log" FontWeight="Bold" Margin="0,0,0,4"/>
         <TextBox x:Name="TxtLog" Grid.Row="3" IsReadOnly="True" FontFamily="Consolas" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" AcceptsReturn="True"/>
       </Grid>
     </Grid>
-    <DockPanel Grid.Row="2" Margin="0,14,0,0"><TextBlock x:Name="TxtFooter" Text="Administrator mode required. Output is written to the protected data root." Foreground="#667"/><Button x:Name="BtnOpenLast" Content="Open last report" DockPanel.Dock="Right" Width="140" Height="30" IsEnabled="False"/></DockPanel>
+
+    <DockPanel Grid.Row="2" Margin="0,14,0,0"><TextBlock x:Name="TxtFooter" Text="Operator workflow: scan physical IDs (when required) and run QC. Hardware discovery is automatic." Foreground="#667"/><Button x:Name="BtnOpenLast" Content="Open last report" DockPanel.Dock="Right" Width="140" Height="30" IsEnabled="False"/></DockPanel>
   </Grid>
 </Window>
