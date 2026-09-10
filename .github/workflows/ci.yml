@@ -43,7 +43,13 @@ jobs:
 
       - name: Run Windows PowerShell runtime smoke tests
         shell: powershell
-        run: .\tests\Runtime.Tests.ps1
+        run: |
+          $ErrorActionPreference='Stop'
+          Get-ChildItem .\tests -Filter *.Tests.ps1 | Sort-Object Name | ForEach-Object {
+            Write-Host "=== Running $($_.Name) ===" -ForegroundColor Cyan
+            & $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "$($_.Name) failed with exit code $LASTEXITCODE" }
+          }
 
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
