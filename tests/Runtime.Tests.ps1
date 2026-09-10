@@ -55,12 +55,11 @@ if (@($serials | Where-Object Serial -eq 'USB-SHOULD-NOT-BE-IDENTITY').Count -ne
 $temp=Join-Path $env:TEMP ('SitecQC-Test-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $temp -Force | Out-Null
 try {
-    # DiskSpd 2.3 XML shape seen on the production i7-14700K/990 PRO run.
     $diskXml=Join-Path $temp 'diskspd.xml'
     @'
 <Results><TimeSpan><TestTimeSeconds>8.00</TestTimeSeconds><Thread><Target><ReadBytes>53687091200</ReadBytes><ReadCount>51200</ReadCount><WriteBytes>0</WriteBytes><WriteCount>0</WriteCount><AverageReadLatencyMilliseconds>1.25</AverageReadLatencyMilliseconds></Target></Thread></TimeSpan></Results>
 '@ | Set-Content -LiteralPath $diskXml -Encoding UTF8
-    $dm=Get-DiskSpdMetrics -XmlPath $diskXml
+    $dm=Get-SitecDiskSpdMetrics -XmlPath $diskXml
     if ([math]::Abs([double]$dm.ReadMBps-6400) -gt 0.1) { throw "DiskSpd XML parser runtime test failed: $($dm.ReadMBps) MB/s" }
 
     $manifestObject=[pscustomobject]@{AssetId='PC-TEST';Hardware=$hardware;Physical=$physical;Profile=$profile}
