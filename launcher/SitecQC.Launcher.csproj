@@ -10,9 +10,9 @@
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>SitecQC</AssemblyName>
     <RootNamespace>SitecQC.Launcher</RootNamespace>
-    <Version>3.1.0</Version>
-    <FileVersion>3.1.0.0</FileVersion>
-    <AssemblyVersion>3.1.0.0</AssemblyVersion>
+    <Version>3.2.0</Version>
+    <FileVersion>3.2.0.0</FileVersion>
+    <AssemblyVersion>3.2.0.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="payload.zip" Condition="Exists('payload.zip')" LogicalName="SitecQC.Payload.zip" />
