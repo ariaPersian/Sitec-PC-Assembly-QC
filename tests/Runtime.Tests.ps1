@@ -27,7 +27,12 @@ if ($bom.Status -ne 'PASS') { throw 'BOM runtime test failed: ' + (($bom.Checks 
 if (@($bom.Checks).Count -lt 10) { throw 'BOM validation returned an unexpectedly small check set.' }
 
 $benchmark=[pscustomobject]@{
-    Stress=[pscustomobject]@{Status='PASS';MemoryVerification=[pscustomobject]@{Errors=0};CpuStress=[pscustomobject]@{Seconds=30;HashWorkMBps=100};Sensors=@()}
+    Stress=[pscustomobject]@{
+        Status='PASS'
+        MemoryVerification=[pscustomobject]@{RequestedMB=1024;VerifiedMB=1024;Errors=0;Seconds=1}
+        CpuStress=[pscustomobject]@{Seconds=30;Threads=28;HashWorkMBps=100;Iterations=1000}
+        Sensors=@()
+    }
     WHEA=[pscustomobject]@{Count=0;Events=@()}
     WinSAT=[pscustomobject]@{Available=$true;Status='PASS';CpuCompressionMBps=350;MemoryMBps=18000}
     DiskSpd=[pscustomobject]@{Available=$true;Required=$true;Status='PASS';SequentialReadMBps=3000;SequentialWriteMBps=2200;RandomReadIOPS=50000}
@@ -37,5 +42,34 @@ if ($bench.Status -ne 'PASS') { throw 'Benchmark validation runtime test failed.
 
 $serials=@(Get-SitecSerialSet -Hardware $hardware -Physical $physical)
 if ($serials.Count -lt 6) { throw 'Serial inventory runtime test failed.' }
+
+$temp=Join-Path $env:TEMP ('SitecQC-Test-'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $temp -Force | Out-Null
+try {
+    $context.Settings.Reporting.GeneratePdf=$false
+    $run=[pscustomobject]@{
+        AssetId='PC-TEST'
+        RunId='PC-TEST-20260910-000000'
+        Operator='CI'
+        CompletedAt='2026-09-10T00:00:00'
+        OverallStatus='PASS'
+        Profile=$profile
+        Physical=$physical
+        Hardware=$hardware
+        BomValidation=$bom
+        Benchmark=$benchmark
+        BenchmarkValidation=$bench
+        PassMarkEvidence=@()
+        Security=[pscustomobject]@{Signed=$false;Thumbprint='';Sha256='ABCDEF'}
+    }
+    $report=New-SitecCustomerReport -Run $run -RunPath $temp -Context $context
+    if (-not (Test-Path -LiteralPath $report.HtmlPath)) { throw 'Customer report was not generated.' }
+    $html=Get-Content -LiteralPath $report.HtmlPath -Raw
+    if ($html -match '>N/A<') { throw 'Dynamic report rendered an N/A placeholder instead of omitting missing optional data.' }
+    if ($html -match '<th>CPU Cooler</th>') { throw 'Dynamic report rendered an empty optional CPU cooler field.' }
+    if ($html -match '<h2>Storage Reliability</h2>') { throw 'Dynamic report rendered an unavailable storage reliability section.' }
+} finally {
+    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host 'Runtime smoke tests passed.' -ForegroundColor Green
