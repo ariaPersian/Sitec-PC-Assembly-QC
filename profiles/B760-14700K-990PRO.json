@@ -1,10 +1,11 @@
 {
   "ProfileId": "B760-14700K-990PRO",
-  "ProfileVersion": 1,
+  "ProfileVersion": 2,
   "Description": "GREEN AVA+ / ASUS TUF B760-PLUS WIFI / Core i7-14700K / 16GB DDR5 / Samsung 990 PRO 1TB / GREEN 700W",
   "Expected": {
     "CaseModel": "GREEN AVA+",
     "PsuModel": "GREEN GP700A-GED V3.1 700W",
+    "CpuCoolerModel": "",
     "MotherboardModelContains": "TUF GAMING B760-PLUS WIFI",
     "CpuModelContains": "i7-14700K",
     "MemoryTotalGB": 16,
@@ -13,6 +14,12 @@
     "StorageModelContains": "Samsung SSD 990 PRO 1TB",
     "StorageMinimumSizeGB": 900,
     "GpuModelContains": "Intel(R) UHD Graphics"
+  },
+  "Capture": {
+    "RequirePsuSerial": true,
+    "RequireCpuAtpo": true,
+    "RequireSeal1": true,
+    "RequireSeal2": false
   },
   "Thresholds": {
     "MinimumWinSatMemoryMBps": 15000,
