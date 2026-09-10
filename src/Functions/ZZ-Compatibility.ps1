@@ -8,14 +8,16 @@ function New-SitecObjectTableSection {
         [AllowNull()][AllowEmptyCollection()]$Rows,
         [Parameter(Mandatory)]$Columns
     )
-    $rowsArray=@($Rows)
+    if ($null -eq $Rows) { return '' }
+    $rowsArray=@($Rows | Where-Object { $null -ne $_ })
     if ($rowsArray.Count -eq 0) { return '' }
 
     $active=@()
     foreach ($column in $Columns) {
         $has=$false
         foreach ($row in $rowsArray) {
-            $value=& $column.Getter $row
+            $value=''
+            try { $value=& $column.Getter $row } catch [System.Management.Automation.PropertyNotFoundException] { $value='' }
             if (Test-SitecReportValue $value) { $has=$true;break }
         }
         if ($has) { $active += $column }
@@ -27,7 +29,8 @@ function New-SitecObjectTableSection {
     foreach ($row in $rowsArray) {
         $cells=''
         foreach ($column in $active) {
-            $value=& $column.Getter $row
+            $value=''
+            try { $value=& $column.Getter $row } catch [System.Management.Automation.PropertyNotFoundException] { $value='' }
             $cells += '<td>'+(ConvertTo-SitecHtml $value)+'</td>'
         }
         $body += '<tr>'+$cells+'</tr>'
