@@ -18,7 +18,7 @@ $hardware=[pscustomobject]@{
     MemoryTotalGB=16
     Storage=@(
         [pscustomobject]@{FriendlyName='SanDisk 3.2Gen1';Model='SanDisk 3.2Gen1';SerialNumber='USB-SHOULD-NOT-BE-IDENTITY';FirmwareVersion='';MediaType='Unspecified';BusType='USB';SizeGB=57.3;HealthStatus='Healthy';Reliability=[pscustomobject]@{Available=$false}},
-        [pscustomobject]@{FriendlyName='Samsung SSD 990 PRO 1TB';Model='Samsung SSD 990 PRO 1TB';SerialNumber='SSD123456';FirmwareVersion='5B2QJXD7';MediaType='SSD';BusType='NVMe';SizeGB=931.51;HealthStatus='Healthy';Reliability=[pscustomobject]@{Available=$false}}
+        [pscustomobject]@{FriendlyName='Samsung SSD 990 PRO 1TB';Model='Samsung SSD 990 PRO 1TB';SerialNumber='SSD123456';ControllerIdentifier='0025_3848_51A0_4F0E.';FirmwareVersion='5B2QJXD7';MediaType='SSD';BusType='NVMe';SizeGB=931.51;HealthStatus='Healthy';Reliability=[pscustomobject]@{Available=$false}}
     )
     BIOS=[pscustomobject]@{Manufacturer='American Megatrends';Version='1836';ReleaseDate='2026-04-16';SMBIOSVersion='3.7'}
     Graphics=@([pscustomobject]@{Name='Intel(R) UHD Graphics';AdapterRAMGB=1;DriverVersion='1.0';Status='OK'})
@@ -34,19 +34,40 @@ if (@($bom.Checks).Count -lt 10) { throw 'BOM validation returned an unexpectedl
 $ssdCheck=$bom.Checks | Where-Object Name -eq 'SSD serial' | Select-Object -First 1
 if ([string]$ssdCheck.Actual -match 'USB-SHOULD') { throw 'USB storage leaked into expected SSD identity validation.' }
 
-$benchmark=[pscustomobject]@{
-    Stress=[pscustomobject]@{
-        Status='PASS'
-        MemoryVerification=[pscustomobject]@{RequestedMB=1024;VerifiedMB=1024;Errors=0;Seconds=1}
-        CpuStress=[pscustomobject]@{Seconds=30;Threads=28;HashWorkMBps=100;Iterations=1000}
-        Sensors=@()
+# Compile and execute the native CPU/RAM workers briefly so Windows PowerShell 5.1
+# incompatibilities are caught in CI without running the production 15-minute profile.
+Initialize-SitecBurnInType
+$ciCpu=[SitecQcBurnInV2]::CpuAsync(1,2,50).GetAwaiter().GetResult()
+if ($ciCpu.Iterations -le 0 -or $ciCpu.Threads -ne 2) { throw 'CPU burn-in worker smoke test failed.' }
+$ciMem=[SitecQcBurnInV2]::MemoryAsync(1,128,1).GetAwaiter().GetResult()
+if ($ciMem.Errors -ne 0 -or $ciMem.AllocatedMB -lt 128 -or $ciMem.BytesVerified -le 0) { throw 'Memory burn-in worker smoke test failed.' }
+
+$burnIn=[pscustomobject]@{
+    Status='PASS';Required=$true;DurationSeconds=900;ActualSeconds=901.2
+    CpuStress=[pscustomobject]@{Seconds=900;Threads=28;DutyPercent=85;HashWorkMBps=1234;WorkUnitsPerSecond=1234;Iterations=1000000}
+    MemoryVerification=[pscustomobject]@{RequestedMB=9000;AllocatedMB=9000;VerifiedMB=900000;Errors=0;Seconds=900;Passes=100;TargetSystemUsagePercent=78}
+    DiskStress=[pscustomobject]@{Enabled=$true;Status='PASS';ReadMBps=3500;ReadIOPS=55000;AverageReadLatencyMs=0.4;BlockSizeKB=64;QueueDepth=16;Threads=4;WritePercent=0}
+    GraphicsStress=[pscustomobject]@{Enabled=$true;Required=$false;Status='PASS';Engine='WinSAT DWM composition workload'}
+    Utilization=[pscustomobject]@{
+        SampleCount=180
+        CPU=[pscustomobject]@{Average=96.2;Peak=100;Samples=180}
+        Memory=[pscustomobject]@{Average=77.4;Peak=80.1;Samples=180}
+        Disk=[pscustomobject]@{Average=62.1;Peak=100;Samples=180}
+        GPU=[pscustomobject]@{Average=28.5;Peak=44.0;Samples=180}
     }
+    Sensors=@();LoadSamples=@()
+}
+
+$benchmark=[pscustomobject]@{
+    BurnIn=$burnIn
+    Stress=$burnIn
     WHEA=[pscustomobject]@{Count=0;Events=@()}
     WinSAT=[pscustomobject]@{Available=$true;Status='PASS';CpuCompressionMBps=2531;MemoryMBps=28982}
     DiskSpd=[pscustomobject]@{Available=$true;Required=$true;Status='PASS';SequentialReadMBps=6422;SequentialWriteMBps=6501;RandomReadIOPS=589000}
 }
 $bench=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
 if ($bench.Status -ne 'PASS') { throw 'Benchmark validation runtime test failed.' }
+if (-not ($bench.Checks | Where-Object Name -eq 'CPU average load during burn-in')) { throw 'Burn-in utilization validation was not generated.' }
 
 $serials=@(Get-SitecSerialSet -Hardware $hardware -Physical $physical -Profile $profile)
 if ($serials.Count -lt 6) { throw 'Serial inventory runtime test failed.' }
@@ -101,6 +122,7 @@ try {
     Write-SitecEvidenceHashes -RunPath $temp | Out-Null
     $html=Get-Content -LiteralPath $report.HtmlPath -Raw
     if ($html -notmatch 'Hardware Identity SHA-256') { throw 'Hardware identity hash was not injected into the customer certificate.' }
+    if ($html -notmatch '<h2>Full System Burn-In</h2>') { throw 'Full-system burn-in summary was not injected into the customer certificate.' }
 } finally {
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
