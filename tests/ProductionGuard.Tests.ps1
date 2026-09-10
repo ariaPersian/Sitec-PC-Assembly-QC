@@ -16,9 +16,9 @@ Assert-True ([bool]$timeout.TimedOut) 'Watchdog timeout result must be explicitl
 Assert-True ($timeout.DiskStress.Status -eq 'TIMEOUT') 'Child workload timeout must be visible in the NVMe result.'
 
 # Real 2D Matrix scans supplied from the i7-14700K production batch.
-Assert-True (Test-SitecCpuAtpoValue 'M6M71N2102883') 'Real CPU ATPO sample M6M71N2102883 must be accepted.'
-Assert-True (Test-SitecCpuAtpoValue 'M6M71N2103913') 'Real CPU ATPO sample M6M71N2103913 must be accepted.'
-Assert-True (-not (Test-SitecCpuAtpoValue '123')) 'Placeholder ATPO must remain rejected.'
+Assert-True (Test-SitecCpuAtpo -Value 'M6M71N2102883') 'Real CPU ATPO sample M6M71N2102883 must be accepted.'
+Assert-True (Test-SitecCpuAtpo -Value 'M6M71N2103913') 'Real CPU ATPO sample M6M71N2103913 must be accepted.'
+Assert-True (-not (Test-SitecCpuAtpo -Value '123')) 'Placeholder ATPO must remain rejected.'
 
 $source=(Get-Command Invoke-SitecFullSystemBurnIn).Definition
 Assert-True ($source -match 'SITECQC_BURNIN_CHILD') 'Burn-in must execute through the isolated child-process watchdog.'
