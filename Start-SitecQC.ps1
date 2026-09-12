@@ -17,6 +17,8 @@ $context=Get-SitecContext -DataRoot $DataRoot
 $profile=Get-SitecProfile -Context $context -ProfileId ([string]$context.Settings.DefaultProfileId)
 $resolvedDataRoot=[string]$context.Settings.DataRoot
 $automaticOperator=[string]$env:USERNAME
+$compactLayout=Initialize-SitecCompactOutput -PublicRoot $resolvedDataRoot
+$internalDataRoot=[string]$compactLayout.InternalRoot
 
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 [xml]$xaml=Get-Content -LiteralPath (Join-Path $root 'ui\MainWindow.xaml') -Raw -Encoding UTF8
@@ -141,13 +143,10 @@ function Q([string]$s) { '"' + ($s -replace '"','\"') + '"' }
 
 $BtnDetect.Add_Click({ Refresh-SitecHardware })
 
-# Asset ID and tamper seal #1 are normally the same physical label in this production batch.
-# Every Asset ID change refreshes the seal field; the operator can still overwrite seal #1 afterwards.
 $TxtAssetId.Add_TextChanged({
     $TxtSeal1.Text=$TxtAssetId.Text
 })
 
-# Scanner-friendly flow: most USB barcode/2D scanners send Enter after a scan.
 $TxtAssetId.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtPsuSerial.Focus() | Out-Null; $_.Handled=$true } })
 $TxtPsuSerial.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtCpuAtpo.Focus() | Out-Null; $_.Handled=$true } })
 $TxtCpuAtpo.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtSeal1.Focus() | Out-Null; $_.Handled=$true } })
@@ -168,7 +167,7 @@ $BtnRun.Add_Click({
             if ([string]::IsNullOrWhiteSpace([string]$item.Value)) { throw "$($item.Name) must be scanned or confirmed before final QC." }
         }
 
-        $worker=Join-Path $root 'Invoke-SitecQC.ps1'
+        $worker=Join-Path $root 'Invoke-SitecQC-Compact.ps1'
         $caseModel=[string]$profile.Expected.CaseModel
         $psuModel=[string]$profile.Expected.PsuModel
         $cooler=[string]$profile.Expected.CpuCoolerModel
@@ -177,7 +176,7 @@ $BtnRun.Add_Click({
             '-AssetId',(Q $asset),'-ProfileId',(Q ([string]$profile.ProfileId)),'-Operator',(Q $automaticOperator),
             '-CaseModel',(Q $caseModel),'-PsuModel',(Q $psuModel),'-PsuSerial',(Q $TxtPsuSerial.Text.Trim()),
             '-CpuAtpo',(Q $TxtCpuAtpo.Text.Trim()),'-Cooler',(Q $cooler),'-Seal1',(Q $TxtSeal1.Text.Trim()),
-            '-DataRoot',(Q $resolvedDataRoot)
+            '-PublicRoot',(Q $resolvedDataRoot)
         )
         $script:StartedAt=Get-Date
         $script:CurrentStatus=$null
@@ -201,7 +200,7 @@ $timer.Interval=[TimeSpan]::FromSeconds(1)
 $timer.Add_Tick({
     if (-not $script:Worker) { return }
     $asset=$TxtAssetId.Text.Trim()
-    $assetRoot=Join-Path $resolvedDataRoot ("Assets\$asset\Runs")
+    $assetRoot=Join-Path $internalDataRoot ("Assets\$asset\Runs")
     if (Test-Path $assetRoot) {
         $statusFile=Get-ChildItem -LiteralPath $assetRoot -Filter status.json -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $script:StartedAt.AddSeconds(-2) } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($statusFile) {
@@ -213,19 +212,14 @@ $timer.Add_Tick({
                 $TxtMessage.Text=[string]$s.Message
                 $log=Join-Path $s.RunPath 'worker.log'
                 if (Test-Path $log) { $TxtLog.Text=Get-Content $log -Raw -Encoding UTF8; $TxtLog.ScrollToEnd() }
-                if ($s.State -eq 'COMPLETE') {
-                    $resultPath=Join-Path $s.RunPath 'result.json'
-                    if (Test-Path $resultPath) {
-                        $r=Get-Content $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
-                        $script:LastReport=if($r.Pdf){$r.Pdf}else{$r.Html}
-                    }
-                }
             } catch {}
         }
     }
     if ($script:Worker.HasExited) {
         $BtnRun.IsEnabled=$true
         $BtnDetect.IsEnabled=$true
+        $published=Get-SitecPublishedCertificatePath -PublicRoot $resolvedDataRoot -AssetId $asset
+        if (Test-Path -LiteralPath $published) { $script:LastReport=$published }
         $BtnOpenLast.IsEnabled=[bool]$script:LastReport
         if ($script:Worker.ExitCode -eq 0) { $TxtHeaderStatus.Text='PASS'; $TxtHeaderStatus.Foreground='#A8E6BE' }
         elseif ($script:Worker.ExitCode -eq 2) { $TxtHeaderStatus.Text='FAIL'; $TxtHeaderStatus.Foreground='#FFB4AB' }
@@ -236,7 +230,6 @@ $timer.Add_Tick({
 $timer.Start()
 $BtnOpenLast.Add_Click({ if ($script:LastReport -and (Test-Path $script:LastReport)) { Start-Process $script:LastReport } })
 
-# Fully automatic startup: provision bundled/missing tools, then discover hardware.
 try { Ensure-SitecDependencies } catch {}
 Refresh-SitecHardware
 if (Get-SitecCaptureFlag 'RequirePsuSerial' $true) { $TxtPsuSerial.Focus() | Out-Null }
