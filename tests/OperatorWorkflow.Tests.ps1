@@ -33,4 +33,12 @@ if ($start -match '\$TxtProfile\b') { throw 'Start-SitecQC still references the 
 $profileSource="'-ProfileId',(Q ([string]`$profile.ProfileId))"
 if ($start -notmatch [regex]::Escape($profileSource)) { throw 'Profile ID is not sourced internally from the configured BOM profile.' }
 
-Write-Host 'Operator workflow UI test passed.' -ForegroundColor Green
+$iconPath=Join-Path $root 'ui\AppIcon.ico'
+if (-not (Test-Path -LiteralPath $iconPath)) { throw 'Application icon is missing from the packaged UI directory.' }
+if ((Get-Item -LiteralPath $iconPath).Length -lt 1024) { throw 'Application icon file is unexpectedly small.' }
+if ($start -notmatch [regex]::Escape("ui\AppIcon.ico")) { throw 'WPF window icon wiring is missing.' }
+
+$project=Get-Content -LiteralPath (Join-Path $root 'launcher\SitecQC.Launcher.csproj') -Raw -Encoding UTF8
+if ($project -notmatch '<ApplicationIcon>\.\.\\ui\\AppIcon\.ico</ApplicationIcon>') { throw 'Launcher executable icon is not configured.' }
+
+Write-Host 'Operator workflow and application icon tests passed.' -ForegroundColor Green
