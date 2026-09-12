@@ -65,7 +65,7 @@ jobs:
           [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
           $stage=Join-Path $env:RUNNER_TEMP 'SitecQC-payload'
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          @('Start-SitecQC.ps1','Invoke-SitecQC.ps1','Verify-SitecQC.ps1','src','ui','config','profiles','tools','THIRD-PARTY-NOTICES.md') | ForEach-Object {
+          @('Start-SitecQC.ps1','Invoke-SitecQC.ps1','Invoke-SitecQC-Compact.ps1','Verify-SitecQC.ps1','src','ui','config','profiles','tools','THIRD-PARTY-NOTICES.md') | ForEach-Object {
             Copy-Item -LiteralPath $_ -Destination $stage -Recurse -Force
           }
 
