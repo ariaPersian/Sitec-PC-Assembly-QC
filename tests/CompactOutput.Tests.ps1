@@ -11,7 +11,6 @@ try {
     if (-not (Test-Path -LiteralPath $layout.StateRoot)) { throw 'USB hidden state folder was not created.' }
     if (-not (Test-Path -LiteralPath $layout.FailureRoot)) { throw 'USB Failures folder was not created.' }
 
-    # Seed/sync the exact files used by duplicate detection and baseline comparison.
     'AssetId,RunId,Type,Serial,Timestamp' | Set-Content -LiteralPath (Join-Path $layout.StateRoot 'fleet-serial-index.csv') -Encoding ASCII
     'AssetId,RunId,Timestamp' | Set-Content -LiteralPath (Join-Path $layout.StateRoot 'fleet-runs.csv') -Encoding ASCII
     $base=Join-Path $layout.StateRoot 'Assets\CASE-TEST\Baseline'
@@ -37,12 +36,12 @@ try {
             CPU=[pscustomobject]@{Model='Intel Core i7-14700K'}
             MemoryTotalGB=16
             Memory=@([pscustomobject]@{PartNumber='RAM-PART';SerialNumber='RAM001'})
-            Storage=@([pscustomobject]@{Model='Samsung SSD 990 PRO 1TB';SerialNumber='SSD001';BusType='NVMe'})
+            Storage=@([pscustomobject]@{Model='Samsung SSD 990 PRO 1TB';FriendlyName='Samsung SSD 990 PRO 1TB';SerialNumber='SSD001';BusType='NVMe'})
             BIOS=[pscustomobject]@{Version='1836'}
             Graphics=@([pscustomobject]@{Name='Intel UHD Graphics'})
             SystemUUID='UUID001'
         }
-        Profile=[pscustomobject]@{Expected=[pscustomobject]@{StorageModelRegex='990 PRO'}}
+        Profile=[pscustomobject]@{Expected=[pscustomobject]@{StorageModelContains='990 PRO'}}
         Security=[pscustomobject]@{HardwareIdentitySha256='HWID';Sha256='MANIFEST'}
     }
     $register=Update-SitecFleetRegister -ArchiveRoot $archive -Run $fakeRun -CertificatePath $published
