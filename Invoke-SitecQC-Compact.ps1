@@ -11,14 +11,17 @@ param(
     [string]$Cooler='',
     [string]$Seal1='',
     [string]$Seal2='',
-    [string]$PublicRoot='C:\SitecQC-Data',
+    [Parameter(Mandatory)][string]$ArchiveRoot,
+    [string]$WorkingRoot='',
     [switch]$ContinueBenchmarkOnBomFailure
 )
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
-$layout=Initialize-SitecCompactOutput -PublicRoot $PublicRoot
-$internalRoot=[string]$layout.InternalRoot
+$layout=Initialize-SitecPortableArchive -ArchiveRoot $ArchiveRoot
+if ([string]::IsNullOrWhiteSpace($WorkingRoot)) { $WorkingRoot=New-SitecWorkingRoot }
+New-Item -ItemType Directory -Path $WorkingRoot -Force | Out-Null
+Seed-SitecWorkingState -ArchiveRoot $ArchiveRoot -WorkingRoot $WorkingRoot
 $legacyWorker=Join-Path $root 'Invoke-SitecQC.ps1'
 
 function Q([string]$s) { '"' + ($s -replace '"','\"') + '"' }
@@ -29,46 +32,62 @@ $args=@(
     '-AssetId',(Q $AssetId),'-ProfileId',(Q $ProfileId),'-Operator',(Q $Operator),
     '-CaseModel',(Q $CaseModel),'-PsuModel',(Q $PsuModel),'-PsuSerial',(Q $PsuSerial),
     '-CpuAtpo',(Q $CpuAtpo),'-Cooler',(Q $Cooler),'-Seal1',(Q $Seal1),'-Seal2',(Q $Seal2),
-    '-DataRoot',(Q $internalRoot)
+    '-DataRoot',(Q $WorkingRoot)
 )
 if ($ContinueBenchmarkOnBomFailure) { $args += '-ContinueBenchmarkOnBomFailure' }
 
-$child=Start-Process powershell.exe -ArgumentList ($args -join ' ') -PassThru -WindowStyle Hidden -Wait
-$exitCode=$child.ExitCode
-
-$runRoot=Join-Path $internalRoot ("Assets\{0}\Runs" -f $AssetId)
+$exitCode=1
 $runDir=$null
-if (Test-Path -LiteralPath $runRoot) {
-    $runDir=Get-ChildItem -LiteralPath $runRoot -Directory -ErrorAction SilentlyContinue |
-        Where-Object { $_.LastWriteTime -ge $started.AddMinutes(-1) } |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $runDir) {
-        $runDir=Get-ChildItem -LiteralPath $runRoot -Directory -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    }
-}
-
 try {
+    $child=Start-Process powershell.exe -ArgumentList ($args -join ' ') -PassThru -WindowStyle Hidden -Wait
+    $exitCode=$child.ExitCode
+
+    $runRoot=Join-Path $WorkingRoot ("Assets\{0}\Runs" -f $AssetId)
+    if (Test-Path -LiteralPath $runRoot) {
+        $runDir=Get-ChildItem -LiteralPath $runRoot -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -ge $started.AddMinutes(-1) } |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if (-not $runDir) {
+            $runDir=Get-ChildItem -LiteralPath $runRoot -Directory -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        }
+    }
+
     if ($runDir) {
         $resultPath=Join-Path $runDir.FullName 'result.json'
+        $manifestPath=Join-Path $runDir.FullName 'hardware-qc-manifest.json'
         $sourcePdf=Join-Path $runDir.FullName 'QC-Certificate.pdf'
         if (Test-Path -LiteralPath $resultPath) {
             try {
                 $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
                 if ($result.Pdf -and (Test-Path -LiteralPath ([string]$result.Pdf))) { $sourcePdf=[string]$result.Pdf }
+                if ($result.Manifest -and (Test-Path -LiteralPath ([string]$result.Manifest))) { $manifestPath=[string]$result.Manifest }
             } catch {}
         }
+
+        $published=$null
         if (Test-Path -LiteralPath $sourcePdf) {
-            [void](Publish-SitecCertificate -PublicRoot $PublicRoot -AssetId $AssetId -SourcePdf $sourcePdf)
+            $published=Publish-SitecCertificate -ArchiveRoot $ArchiveRoot -AssetId $AssetId -SourcePdf $sourcePdf
         }
+
+        # Baselines and fleet serial indexes are durable only on the removable archive.
+        Sync-SitecWorkingState -ArchiveRoot $ArchiveRoot -WorkingRoot $WorkingRoot -AssetId $AssetId
+
+        if ((Test-Path -LiteralPath $manifestPath) -and $published) {
+            try {
+                $run=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                [void](Update-SitecFleetRegister -ArchiveRoot $ArchiveRoot -Run $run -CertificatePath $published)
+            } catch {}
+        }
+
         if ($exitCode -ne 0) {
-            [void](Save-SitecSupportBundle -AssetId $AssetId -RunPath $runDir.FullName)
+            [void](Save-SitecSupportBundle -ArchiveRoot $ArchiveRoot -AssetId $AssetId -RunPath $runDir.FullName)
         }
     }
 } finally {
-    # Raw benchmark XML, transient HTML, verbose logs and diagnostics are implementation details.
-    # Baseline + fleet identity data stay under ProgramData; the customer-facing folder keeps only PDFs.
-    Remove-SitecCompletedRuns -InternalRoot $internalRoot -AssetId $AssetId
+    # All benchmark XML, transient HTML, manifests, verbose logs and runtime data are local only
+    # while the test is running. Durable evidence/state has already been exported to USB.
+    Remove-SitecLocalQcResidue -WorkingRoot $WorkingRoot
 }
 
 exit $exitCode
