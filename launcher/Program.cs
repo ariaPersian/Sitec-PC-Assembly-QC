@@ -11,12 +11,13 @@ namespace SitecQC.Launcher;
 
 internal static class Program
 {
-    private const string AppVersion = "3.6.0";
+    private const string AppVersion = "3.7.0";
     private const string PayloadResource = "SitecQC.Payload.zip";
 
     [STAThread]
     private static int Main()
     {
+        string? appRoot = null;
         try
         {
             if (!IsAdministrator())
@@ -25,7 +26,11 @@ internal static class Program
                 return 0;
             }
 
-            var appRoot = EnsurePayloadExtracted();
+            var exe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName
+                      ?? throw new InvalidOperationException("Unable to determine launcher path.");
+            var launcherDir = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory;
+
+            appRoot = ExtractPayloadToTemporaryFolder();
             var script = Path.Combine(appRoot, "Start-SitecQC.ps1");
             if (!File.Exists(script))
                 throw new FileNotFoundException("The embedded SITEC QC application payload is incomplete.", script);
@@ -33,19 +38,28 @@ internal static class Program
             var psi = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoProfile -ExecutionPolicy Bypass -File \"{script}\"",
+                Arguments = $"-NoProfile -STA -ExecutionPolicy Bypass -File \"{script}\" -LauncherDir \"{launcherDir.Replace("\"", "\\\"")}\"",
                 WorkingDirectory = appRoot,
-                UseShellExecute = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden
             };
 
-            Process.Start(psi);
-            return 0;
+            using var child = Process.Start(psi) ?? throw new InvalidOperationException("Unable to start the SITEC QC application.");
+            child.WaitForExit();
+            return child.ExitCode;
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "SITEC PC Assembly & QC", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
+        }
+        finally
+        {
+            if (!string.IsNullOrWhiteSpace(appRoot))
+            {
+                try { if (Directory.Exists(appRoot)) Directory.Delete(appRoot, true); } catch { }
+            }
         }
     }
 
@@ -67,33 +81,30 @@ internal static class Program
         });
     }
 
-    private static string EnsurePayloadExtracted()
+    private static string ExtractPayloadToTemporaryFolder()
     {
-        var baseRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "SitecQC", "App");
-        var appRoot = Path.Combine(baseRoot, AppVersion);
-        var marker = Path.Combine(appRoot, ".payload-ready");
-        if (File.Exists(marker))
-            return appRoot;
+        var appRoot = Path.Combine(Path.GetTempPath(), $"SitecQC-App-{AppVersion}-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(appRoot);
 
-        Directory.CreateDirectory(baseRoot);
         var assembly = Assembly.GetExecutingAssembly();
         var resourceName = assembly.GetManifestResourceNames().FirstOrDefault(n => string.Equals(n, PayloadResource, StringComparison.OrdinalIgnoreCase));
         if (resourceName is null)
             throw new InvalidOperationException("This SitecQC.exe build does not contain the embedded application payload.");
 
-        var tempZip = Path.Combine(Path.GetTempPath(), $"SitecQC-{Guid.NewGuid():N}.zip");
+        var tempZip = Path.Combine(Path.GetTempPath(), $"SitecQC-Payload-{Guid.NewGuid():N}.zip");
         try
         {
             using (var input = assembly.GetManifestResourceStream(resourceName) ?? throw new InvalidOperationException("Unable to open embedded payload."))
             using (var output = File.Create(tempZip))
                 input.CopyTo(output);
 
-            if (Directory.Exists(appRoot))
-                Directory.Delete(appRoot, true);
-            Directory.CreateDirectory(appRoot);
             ZipFile.ExtractToDirectory(tempZip, appRoot);
-            File.WriteAllText(marker, AppVersion);
             return appRoot;
+        }
+        catch
+        {
+            try { if (Directory.Exists(appRoot)) Directory.Delete(appRoot, true); } catch { }
+            throw;
         }
         finally
         {
