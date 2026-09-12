@@ -22,6 +22,10 @@ Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 [xml]$xaml=Get-Content -LiteralPath (Join-Path $root 'ui\MainWindow.xaml') -Raw -Encoding UTF8
 $reader=New-Object System.Xml.XmlNodeReader $xaml
 $window=[Windows.Markup.XamlReader]::Load($reader)
+$iconPath=Join-Path $root 'ui\AppIcon.ico'
+if (Test-Path -LiteralPath $iconPath) {
+    try { $window.Icon=[Windows.Media.Imaging.BitmapFrame]::Create([Uri]$iconPath) } catch {}
+}
 function C([string]$n){$window.FindName($n)}
 
 $TxtAssetId=C 'TxtAssetId'
