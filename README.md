@@ -1,105 +1,171 @@
 # Sitec PC Assembly QC
 
-Production-oriented Windows QC application for **hardware inventory, assembly verification, benchmark/stress testing, WHEA error capture, evidence preservation, and customer QC certificates**.
+Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, and a two-page customer QC certificate**.
 
-The project targets batch assembly work such as the current 180-PC build and is designed around one principle: **the operator should enter nothing that Windows, SMBIOS, the BOM profile, or a scanner can provide automatically.**
+Current production workflow: **v3.8.0 / BaselineQC-local**.
 
-## Operator workflow
+The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
-The production artifact is a single self-contained Windows executable:
+## Production workflow
 
-```text
-SitecQC.exe
-```
-
-The operator runs only this file. It elevates itself, extracts its internal application payload under ProgramData, includes the approved DiskSpd and LibreHardwareMonitor payload used by the build, opens the QC GUI, detects hardware automatically, assigns a persistent Asset ID automatically when no physical asset label has been supplied, and runs the complete QC workflow.
-
-The PowerShell files and dependency installer remain in the repository for development/support, but they are not part of the normal operator procedure.
-
-## What is automatic
-
-The following are collected without operator input when the platform exposes them:
-
-- motherboard manufacturer/model/serial
-- CPU model, cores, threads, socket, processor ID
-- RAM slot/manufacturer/part number/serial/capacity/type/speed/voltage
-- SSD/NVMe model/serial/firmware/capacity/bus/health and reliability counters when exposed
-- BIOS version/date/SMBIOS version
-- GPU and network inventory
-- Windows version/build
-- PnP error state
-- System UUID
-- SMBIOS chassis serial and SMBIOS asset tag when the firmware provides meaningful values
-- operator name from the current Windows account
-- case model, PSU model and CPU-cooler model from the selected versioned BOM profile
-
-## Physical-only identifiers
-
-Some identity evidence is not available through ordinary Windows hardware enumeration and therefore must come from a physical label or a controlled assembly process:
-
-- **PSU serial** — scan the PSU/box serial or barcode. The current GREEN GP700A-GED V3.1 is treated as a conventional ATX PSU with no software identity channel exposed to Windows.
-- **CPU ATPO** — scan Intel's full ATPO serial from the processor 2D matrix or the boxed-processor label before the cooler hides the processor markings.
-- **Tamper seal IDs** — scan serialized tamper-evident seals. Seal #2 is optional in the default profile.
-
-USB barcode/2D scanners normally behave as keyboard devices. The GUI is scanner-oriented and moves PSU serial → CPU ATPO → Seal #1 → Seal #2 when the scanner sends Enter. No typing is expected.
-
-The CPU cooler **model is not an operator field** when the batch uses one approved cooler: configure it once in `profiles/B760-14700K-990PRO.json` as `CpuCoolerModel`. If it is left empty, the optional field is omitted from the customer report rather than shown blank.
-
-## Asset ID
-
-Asset ID is a SITEC asset identity, not a CPU/SSD property. The application automatically creates and persists one on first use, preferring a meaningful SMBIOS chassis asset tag when present and otherwise deriving a stable initial token from the SMBIOS System UUID. The operator may overwrite it by scanning an existing physical asset label if the organization already has its own numbering scheme.
-
-For strict human-readable sequential IDs such as `PC-001` … `PC-180` across multiple simultaneously tested machines, use a shared central data/assignment service or preprinted serialized asset labels. A purely local machine cannot safely allocate a fleet-wide sequence without coordination.
-
-## QC and benchmark stack
-
-- Expected-BOM validation
-- WinSAT CPU and memory assessment
-- Sitec CPU stress workload
-- deterministic memory verification
-- Microsoft DiskSpd sequential read/write and 4K random-read storage tests
-- Windows WHEA hardware-error capture during the QC window
-- LibreHardwareMonitor sensor sampling when supported
-- optional PassMark/BurnInTest evidence import
-- fleet duplicate-serial detection
-- baseline/tamper comparison
-- SHA-256 evidence hashing and optional RSA signing
-
-The benchmark architecture remains modular. Additional engines such as Phoronix Test Suite can be integrated as an extended adapter without changing the hardware manifest/report schema; core production QC does not depend on an external online benchmark service.
-
-## Reports
-
-Each run produces a merged machine-readable manifest plus customer HTML/PDF evidence. The customer report is **data-driven**: optional fields, storage reliability counters, sensor values, PassMark evidence, enclosure values, and other sections are rendered only when actual data exists. Required-but-missing identity evidence is shown as `Missing` in validation because that absence is itself a QC failure.
-
-Default data root:
+Each PC contains:
 
 ```text
-C:\SitecQC-Data
+C:\BaselineQC\
+└── SitecQC.exe
 ```
 
-## Source/developer launch
+Run `SitecQC.exe` locally from the PC being tested. **Do not connect the company archive USB while hardware discovery or QC is running.** Removable storage is deliberately blocked during QC so a flash drive cannot appear in the storage inventory or contaminate the baseline.
 
-For repository development only, the application can still be started from source with:
+The application:
 
-```powershell
-.\Start-SitecQC.ps1
+1. requests Administrator elevation;
+2. extracts its embedded runtime temporarily under `%TEMP%`;
+3. detects the installed hardware;
+4. validates the expected BOM;
+5. runs performance qualification and full-system burn-in;
+6. captures WHEA and sensor evidence;
+7. calculates `SITEC-HWID-V2`;
+8. generates a two-page PDF and compact Baseline JSON;
+9. removes temporary benchmark/runtime files.
+
+After SitecQC is closed, the company USB may be connected and the PDF/Baseline JSON copied manually to the protected company archive and master Excel workflow.
+
+## Operator inputs
+
+The normal operator-facing fields are:
+
+- **Asset ID** — organizational/physical case identifier. Tamper seal #1 follows Asset ID automatically unless the operator overrides it.
+- **PSU Serial** — scanned from the installed PSU/controlled packaging.
+- **CPU 2D / ATPO** — Intel Full ATPO scanned from the processor 2D matrix or boxed-processor label.
+- **Tamper seal #1** — normally the same value as Asset ID; may be edited when the physical seal uses a different serial.
+
+Profile selection, Operator, and Tamper seal #2 are not production operator fields.
+
+The approved batch profile currently records:
+
+- Case: `GREEN AVA+`
+- Motherboard: `ASUS TUF GAMING B760-PLUS WIFI`
+- CPU: `Intel Core i7-14700K`
+- Storage: `Samsung SSD 990 PRO 1TB`
+- PSU: `GREEN GP700A-GED V3.1 80PLUS BRONZE ATX 3.1 700W`
+- CPU cooler: `DeepCool AG400 PLUS / XuanBing 400 V5 Dual Fan`, P/N `R-AG400-BKNNMD-G`
+
+## Automatic hardware collection
+
+When exposed by Windows/SMBIOS, SitecQC collects:
+
+- motherboard manufacturer/model/serial;
+- CPU model, core/thread count and processor information;
+- each RAM module: slot, manufacturer, part number, serial, capacity, type and configured speed;
+- internal SSD/NVMe model, vendor serial, firmware, capacity, bus type and supported reliability counters;
+- BIOS/SMBIOS information;
+- GPU and network inventory;
+- System UUID;
+- Windows information for the report only;
+- PnP/device-error state;
+- temperatures/loads and other supported sensor data during QC.
+
+Optional values with no real data are omitted from the customer report instead of being rendered as empty rows.
+
+## QC / benchmark stack
+
+Production QC combines:
+
+- Expected-BOM validation;
+- WinSAT CPU and memory qualification;
+- CPU stress across logical processors;
+- deterministic RAM write/verify testing;
+- Microsoft DiskSpd sequential and random storage qualification;
+- concurrent CPU + RAM + NVMe + graphics burn-in;
+- Windows WHEA hardware-error monitoring;
+- LibreHardwareMonitor sensor sampling when supported;
+- optional PassMark/BurnInTest supporting evidence.
+
+Runtime benchmark XML/log/HTML files are temporary and are removed after completion. A failed run may keep one `LastFailure.zip` under `Output` for troubleshooting.
+
+## Output
+
+The durable customer-PC output is intentionally small:
+
+```text
+C:\BaselineQC\
+├── SitecQC.exe
+└── Output\
+    ├── <AssetId>-QC-Certificate.pdf
+    └── <AssetId>-Baseline.json
 ```
 
-Missing dependencies are now prepared automatically. `tools\Install-Dependencies.ps1` is retained for maintenance and explicit dependency refreshes, not as an operator step.
+The PDF is the human-readable handover document. The JSON is the compact machine-readable record used later by the company-side archive/Excel process.
 
-## CI / production package
+The PDF is exactly two A4 pages:
 
-GitHub Actions now performs:
+- **Page 1:** assembled hardware identity/specifications;
+- **Page 2:** benchmark/burn-in result, validation status, Hardware Identity SHA-256 and Manifest SHA-256.
 
-1. Windows PowerShell 5.1 parse validation
-2. JSON validation
-3. XAML load validation
-4. runtime smoke tests for BOM/benchmark/serial validation
-5. creation of an offline embedded payload containing the approved DiskSpd and LibreHardwareMonitor binaries
-6. publication of a self-contained Windows x64 `SitecQC.exe` artifact
+## Hardware Identity v2
 
-## Evidence integrity
+`SITEC-HWID-V2` answers: **are the serialized core hardware components still the same?**
 
-SHA-256 provides file-integrity evidence. For stronger authenticity, configure the existing RSA/SHA-256 signing support so manifests are digitally signed in addition to being hashed.
+It is calculated only from hardware identity fields:
 
-See `docs/OPERATIONS.md` for production operations and `THIRD-PARTY-NOTICES.md` for third-party components.
+- SMBIOS System UUID;
+- motherboard serial;
+- CPU Full ATPO;
+- PSU serial;
+- sorted RAM serials;
+- sorted serials of internal storage devices that match the BOM.
+
+The following do **not** affect HWID:
+
+- Windows installation/reinstallation;
+- Asset ID or tamper-seal value;
+- BIOS version;
+- drivers;
+- benchmark values;
+- temperatures, SSD health/wear or free space;
+- timestamps;
+- network state;
+- attached USB devices.
+
+Therefore reinstalling Windows must keep the same HWID, while replacing a motherboard, CPU, RAM module, internal SSD/NVMe or PSU with a different serialized unit must change the HWID.
+
+See [`docs/HWID-v2.md`](docs/HWID-v2.md).
+
+## Asset ID, seal, HWID and Manifest are different concepts
+
+- **Asset ID:** administrative identity of the physical PC/case.
+- **Tamper seal #1:** physical seal identifier used at customer handover.
+- **Hardware Identity SHA-256:** identity fingerprint of the serialized core hardware.
+- **Manifest SHA-256:** integrity hash of the exact QC evidence for one run; it normally changes between runs because timestamps, temperatures and benchmark results change.
+
+See [`docs/EVIDENCE-INTEGRITY.md`](docs/EVIDENCE-INTEGRITY.md).
+
+## Customer handover
+
+The intended handover sequence is:
+
+1. run QC with USB/removable storage disconnected;
+2. obtain PASS and generate the two-page certificate;
+3. show the powered-on PC and detected hardware to the customer;
+4. print/review the certificate;
+5. apply the registered tamper seal in front of the customer;
+6. close SitecQC;
+7. connect the company USB and manually copy the PDF + Baseline JSON;
+8. transfer the machine-readable values into the protected master Excel/archive.
+
+Cross-PC duplicate-serial detection and long-term baseline comparison belong to that company-side archive, not to a persistent database on the delivered PC.
+
+## Source / development
+
+Normal operators use only `SitecQC.exe`. Repository scripts such as `Start-SitecQC.ps1`, `Invoke-SitecQC.ps1`, and dependency tooling are retained for development, CI and troubleshooting.
+
+GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests, HWID behavior, reporting and the self-contained Windows x64 package before publishing the `SitecQC-Windows-x64` artifact.
+
+## Documentation
+
+- [`docs/BaselineQC-Workflow.md`](docs/BaselineQC-Workflow.md) — exact production/handover sequence
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — production operations and troubleshooting policy
+- [`docs/HWID-v2.md`](docs/HWID-v2.md) — OS-independent hardware identity definition
+- [`docs/EVIDENCE-INTEGRITY.md`](docs/EVIDENCE-INTEGRITY.md) — HWID, manifest hash and signature model
+- [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) — third-party components
