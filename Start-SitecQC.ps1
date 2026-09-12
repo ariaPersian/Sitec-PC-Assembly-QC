@@ -15,6 +15,8 @@ if (-not $admin) {
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
 $context=Get-SitecContext -DataRoot $DataRoot
 $profile=Get-SitecProfile -Context $context -ProfileId ([string]$context.Settings.DefaultProfileId)
+$resolvedDataRoot=[string]$context.Settings.DataRoot
+$automaticOperator=[string]$env:USERNAME
 
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 [xml]$xaml=Get-Content -LiteralPath (Join-Path $root 'ui\MainWindow.xaml') -Raw -Encoding UTF8
@@ -25,13 +27,9 @@ function C([string]$n){$window.FindName($n)}
 $TxtAssetId=C 'TxtAssetId'
 $TxtProfileDisplay=C 'TxtProfileDisplay'
 $TxtExpectedSummary=C 'TxtExpectedSummary'
-$TxtProfile=C 'TxtProfile'
-$TxtOperator=C 'TxtOperator'
-$TxtDataRoot=C 'TxtDataRoot'
 $TxtPsuSerial=C 'TxtPsuSerial'
 $TxtCpuAtpo=C 'TxtCpuAtpo'
 $TxtSeal1=C 'TxtSeal1'
-$TxtSeal2=C 'TxtSeal2'
 $BtnDetect=C 'BtnDetect'
 $BtnRun=C 'BtnRun'
 $BtnOpenLast=C 'BtnOpenLast'
@@ -43,10 +41,7 @@ $ProgressQc=C 'ProgressQc'
 $TxtHeaderStatus=C 'TxtHeaderStatus'
 $TxtFooter=C 'TxtFooter'
 
-$TxtProfile.Text=[string]$profile.ProfileId
 $TxtProfileDisplay.Text=[string]$profile.ProfileId + ' v' + [string]$profile.ProfileVersion
-$TxtOperator.Text=$env:USERNAME
-$TxtDataRoot.Text=[string]$context.Settings.DataRoot
 $expectedParts=@([string]$profile.Expected.CaseModel,[string]$profile.Expected.PsuModel,[string]$profile.Expected.CpuCoolerModel) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 $TxtExpectedSummary.Text=$expectedParts -join ' | '
 
@@ -129,7 +124,7 @@ function Refresh-SitecHardware {
         $TxtHardware.Text=($lines -join [Environment]::NewLine)
         $TxtHeaderStatus.Text='READY'
         $TxtStage.Text='Ready'
-        $TxtMessage.Text='Hardware discovery completed. Scan only the physical identifiers required by the profile, then run full QC.'
+        $TxtMessage.Text='Hardware discovery completed. Confirm Asset ID, scan PSU serial and CPU ATPO, then run full QC. Tamper seal #1 follows Asset ID unless you overwrite it.'
     } catch {
         [Windows.MessageBox]::Show($_.Exception.Message,'Hardware detection failed') | Out-Null
         $TxtHeaderStatus.Text='ERROR'
@@ -142,11 +137,17 @@ function Q([string]$s) { '"' + ($s -replace '"','\"') + '"' }
 
 $BtnDetect.Add_Click({ Refresh-SitecHardware })
 
+# Asset ID and tamper seal #1 are normally the same physical label in this production batch.
+# Every Asset ID change refreshes the seal field; the operator can still overwrite seal #1 afterwards.
+$TxtAssetId.Add_TextChanged({
+    $TxtSeal1.Text=$TxtAssetId.Text
+})
+
 # Scanner-friendly flow: most USB barcode/2D scanners send Enter after a scan.
+$TxtAssetId.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtPsuSerial.Focus() | Out-Null; $_.Handled=$true } })
 $TxtPsuSerial.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtCpuAtpo.Focus() | Out-Null; $_.Handled=$true } })
 $TxtCpuAtpo.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtSeal1.Focus() | Out-Null; $_.Handled=$true } })
-$TxtSeal1.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtSeal2.Focus() | Out-Null; $_.Handled=$true } })
-$TxtSeal2.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $BtnRun.Focus() | Out-Null; $_.Handled=$true } })
+$TxtSeal1.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $BtnRun.Focus() | Out-Null; $_.Handled=$true } })
 
 $BtnRun.Add_Click({
     try {
@@ -158,10 +159,9 @@ $BtnRun.Add_Click({
         $required=@()
         if (Get-SitecCaptureFlag 'RequirePsuSerial' $true) { $required += [pscustomobject]@{Name='PSU serial';Value=$TxtPsuSerial.Text} }
         if (Get-SitecCaptureFlag 'RequireCpuAtpo' $true) { $required += [pscustomobject]@{Name='CPU ATPO';Value=$TxtCpuAtpo.Text} }
-        if (Get-SitecCaptureFlag 'RequireSeal1' $true) { $required += [pscustomobject]@{Name='Seal #1';Value=$TxtSeal1.Text} }
-        if (Get-SitecCaptureFlag 'RequireSeal2' $false) { $required += [pscustomobject]@{Name='Seal #2';Value=$TxtSeal2.Text} }
+        if (Get-SitecCaptureFlag 'RequireSeal1' $true) { $required += [pscustomobject]@{Name='Tamper seal #1';Value=$TxtSeal1.Text} }
         foreach ($item in $required) {
-            if ([string]::IsNullOrWhiteSpace([string]$item.Value)) { throw "$($item.Name) must be scanned before final QC." }
+            if ([string]::IsNullOrWhiteSpace([string]$item.Value)) { throw "$($item.Name) must be scanned or confirmed before final QC." }
         }
 
         $worker=Join-Path $root 'Invoke-SitecQC.ps1'
@@ -170,10 +170,10 @@ $BtnRun.Add_Click({
         $cooler=[string]$profile.Expected.CpuCoolerModel
         $argList=@(
             '-NoProfile','-ExecutionPolicy','Bypass','-File',(Q $worker),
-            '-AssetId',(Q $asset),'-ProfileId',(Q $TxtProfile.Text.Trim()),'-Operator',(Q $TxtOperator.Text.Trim()),
+            '-AssetId',(Q $asset),'-ProfileId',(Q ([string]$profile.ProfileId)),'-Operator',(Q $automaticOperator),
             '-CaseModel',(Q $caseModel),'-PsuModel',(Q $psuModel),'-PsuSerial',(Q $TxtPsuSerial.Text.Trim()),
             '-CpuAtpo',(Q $TxtCpuAtpo.Text.Trim()),'-Cooler',(Q $cooler),'-Seal1',(Q $TxtSeal1.Text.Trim()),
-            '-Seal2',(Q $TxtSeal2.Text.Trim()),'-DataRoot',(Q $TxtDataRoot.Text.Trim())
+            '-DataRoot',(Q $resolvedDataRoot)
         )
         $script:StartedAt=Get-Date
         $script:CurrentStatus=$null
@@ -197,7 +197,7 @@ $timer.Interval=[TimeSpan]::FromSeconds(1)
 $timer.Add_Tick({
     if (-not $script:Worker) { return }
     $asset=$TxtAssetId.Text.Trim()
-    $assetRoot=Join-Path $TxtDataRoot.Text.Trim() ("Assets\$asset\Runs")
+    $assetRoot=Join-Path $resolvedDataRoot ("Assets\$asset\Runs")
     if (Test-Path $assetRoot) {
         $statusFile=Get-ChildItem -LiteralPath $assetRoot -Filter status.json -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $script:StartedAt.AddSeconds(-2) } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($statusFile) {
