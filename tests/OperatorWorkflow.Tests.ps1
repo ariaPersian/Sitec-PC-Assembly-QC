@@ -30,6 +30,7 @@ if ($start -notmatch [regex]::Escape('$TxtSeal1.Text=$TxtAssetId.Text')) { throw
 if ($start -match '\$TxtSeal2\b') { throw 'Start-SitecQC still references the removed seal #2 UI field.' }
 if ($start -match '\$TxtOperator\b') { throw 'Start-SitecQC still references the removed operator UI field.' }
 if ($start -match '\$TxtProfile\b') { throw 'Start-SitecQC still references the removed profile input field.' }
-if ($start -notmatch "'-ProfileId',\(Q \(\[string\]\$profile\.ProfileId\)\)") { throw 'Profile ID is not sourced internally from the configured BOM profile.' }
+$profileSource="'-ProfileId',(Q ([string]`$profile.ProfileId))"
+if ($start -notmatch [regex]::Escape($profileSource)) { throw 'Profile ID is not sourced internally from the configured BOM profile.' }
 
 Write-Host 'Operator workflow UI test passed.' -ForegroundColor Green
