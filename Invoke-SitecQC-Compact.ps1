@@ -11,17 +11,16 @@ param(
     [string]$Cooler='',
     [string]$Seal1='',
     [string]$Seal2='',
-    [Parameter(Mandatory)][string]$ArchiveRoot,
+    [Parameter(Mandatory)][string]$BaselineRoot,
     [string]$WorkingRoot='',
     [switch]$ContinueBenchmarkOnBomFailure
 )
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
-$layout=Initialize-SitecPortableArchive -ArchiveRoot $ArchiveRoot
+$layout=Initialize-SitecBaselineLayout -BaselineRoot $BaselineRoot
 if ([string]::IsNullOrWhiteSpace($WorkingRoot)) { $WorkingRoot=New-SitecWorkingRoot }
 New-Item -ItemType Directory -Path $WorkingRoot -Force | Out-Null
-Seed-SitecWorkingState -ArchiveRoot $ArchiveRoot -WorkingRoot $WorkingRoot
 $legacyWorker=Join-Path $root 'Invoke-SitecQC.ps1'
 
 function Q([string]$s) { '"' + ($s -replace '"','\"') + '"' }
@@ -65,28 +64,25 @@ try {
             } catch {}
         }
 
-        $published=$null
+        $publishedPdf=$null
         if (Test-Path -LiteralPath $sourcePdf) {
-            $published=Publish-SitecCertificate -ArchiveRoot $ArchiveRoot -AssetId $AssetId -SourcePdf $sourcePdf
+            $publishedPdf=Publish-SitecCertificate -BaselineRoot $BaselineRoot -AssetId $AssetId -SourcePdf $sourcePdf
         }
-
-        # Baselines and fleet serial indexes are durable only on the removable archive.
-        Sync-SitecWorkingState -ArchiveRoot $ArchiveRoot -WorkingRoot $WorkingRoot -AssetId $AssetId
-
-        if ((Test-Path -LiteralPath $manifestPath) -and $published) {
-            try {
-                $run=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-                [void](Update-SitecFleetRegister -ArchiveRoot $ArchiveRoot -Run $run -CertificatePath $published)
-            } catch {}
+        if (Test-Path -LiteralPath $manifestPath) {
+            [void](Publish-SitecBaselineJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -CertificatePath $publishedPdf)
         }
-
         if ($exitCode -ne 0) {
-            [void](Save-SitecSupportBundle -ArchiveRoot $ArchiveRoot -AssetId $AssetId -RunPath $runDir.FullName)
+            [void](Save-SitecSupportBundle -BaselineRoot $BaselineRoot -AssetId $AssetId -RunPath $runDir.FullName)
+        } else {
+            $oldFailure=Get-SitecFailureBundlePath -BaselineRoot $BaselineRoot -AssetId $AssetId
+            Remove-Item -LiteralPath $oldFailure -Force -ErrorAction SilentlyContinue
         }
     }
 } finally {
-    # All benchmark XML, transient HTML, manifests, verbose logs and runtime data are local only
-    # while the test is running. Durable evidence/state has already been exported to USB.
+    # Benchmark XML, transient HTML, verbose logs, signatures and the full
+    # manifest exist only while the run is active. Durable local output is
+    # intentionally limited to PDF + compact Baseline JSON (plus LastFailure
+    # only when troubleshooting a failed run).
     Remove-SitecLocalQcResidue -WorkingRoot $WorkingRoot
 }
 
