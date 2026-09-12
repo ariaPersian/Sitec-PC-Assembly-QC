@@ -10,8 +10,8 @@ $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 $admin=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) {
     $args="-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`""
-    if ($LauncherDir) { $args += " -LauncherDir `"$LauncherDir`""" }
-    if ($ArchiveRoot) { $args += " -ArchiveRoot `"$ArchiveRoot`""" }
+    if ($LauncherDir) { $args += " -LauncherDir `"$LauncherDir`"" }
+    if ($ArchiveRoot) { $args += " -ArchiveRoot `"$ArchiveRoot`"" }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $args
     exit
 }
