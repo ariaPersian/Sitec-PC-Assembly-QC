@@ -1,24 +1,27 @@
 #requires -version 5.1
 [CmdletBinding()]
-param([string]$DataRoot='')
+param(
+    [string]$LauncherDir='',
+    [string]$ArchiveRoot=''
+)
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $admin=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) {
     $args="-NoProfile -ExecutionPolicy Bypass -File `"$($MyInvocation.MyCommand.Path)`""
-    if ($DataRoot) { $args += " -DataRoot `"$DataRoot`"" }
+    if ($LauncherDir) { $args += " -LauncherDir `"$LauncherDir`""" }
+    if ($ArchiveRoot) { $args += " -ArchiveRoot `"$ArchiveRoot`""" }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $args
     exit
 }
 
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
-$context=Get-SitecContext -DataRoot $DataRoot
+$context=Get-SitecContext
 $profile=Get-SitecProfile -Context $context -ProfileId ([string]$context.Settings.DefaultProfileId)
-$resolvedDataRoot=[string]$context.Settings.DataRoot
 $automaticOperator=[string]$env:USERNAME
-$compactLayout=Initialize-SitecCompactOutput -PublicRoot $resolvedDataRoot
-$internalDataRoot=[string]$compactLayout.InternalRoot
+if ([string]::IsNullOrWhiteSpace($ArchiveRoot)) { $ArchiveRoot=Get-SitecEvidenceArchiveRoot -LauncherDir $LauncherDir }
+$portableLayout=Initialize-SitecPortableArchive -ArchiveRoot $ArchiveRoot
 
 Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
 [xml]$xaml=Get-Content -LiteralPath (Join-Path $root 'ui\MainWindow.xaml') -Raw -Encoding UTF8
@@ -50,12 +53,14 @@ $TxtFooter=C 'TxtFooter'
 $TxtProfileDisplay.Text=[string]$profile.ProfileId + ' v' + [string]$profile.ProfileVersion
 $expectedParts=@([string]$profile.Expected.CaseModel,[string]$profile.Expected.PsuModel,[string]$profile.Expected.CpuCoolerModel) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 $TxtExpectedSummary.Text=$expectedParts -join ' | '
+$TxtFooter.Text="Evidence archive: $ArchiveRoot  |  Keep the USB connected until QC finishes. No QC data is retained on this PC after completion."
 
 $script:LastReport=$null
 $script:Worker=$null
 $script:StartedAt=$null
 $script:CurrentStatus=$null
 $script:Hardware=$null
+$script:WorkRoot=$null
 
 function Get-SitecCaptureFlag([string]$Name,[bool]$Default) {
     if ($null -eq $profile.Capture) { return $Default }
@@ -83,11 +88,8 @@ function Ensure-SitecDependencies {
     $window.Dispatcher.Invoke([action]{},[Windows.Threading.DispatcherPriority]::Background)
     $installer=Join-Path $root 'tools\Install-Dependencies.ps1'
     if (-not (Test-Path -LiteralPath $installer)) { throw 'Dependency payload/installer is missing.' }
-    try {
-        & $installer -SkipSensors:(!$needSensors)
-    } catch {
-        [Windows.MessageBox]::Show("Some optional/required QC components could not be prepared automatically.`n`n$($_.Exception.Message)",'SITEC QC preparation warning') | Out-Null
-    }
+    try { & $installer -SkipSensors:(!$needSensors) }
+    catch { [Windows.MessageBox]::Show("Some optional/required QC components could not be prepared automatically.`n`n$($_.Exception.Message)",'SITEC QC preparation warning') | Out-Null }
 }
 
 function Refresh-SitecHardware {
@@ -142,11 +144,7 @@ function Refresh-SitecHardware {
 function Q([string]$s) { '"' + ($s -replace '"','\"') + '"' }
 
 $BtnDetect.Add_Click({ Refresh-SitecHardware })
-
-$TxtAssetId.Add_TextChanged({
-    $TxtSeal1.Text=$TxtAssetId.Text
-})
-
+$TxtAssetId.Add_TextChanged({ $TxtSeal1.Text=$TxtAssetId.Text })
 $TxtAssetId.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtPsuSerial.Focus() | Out-Null; $_.Handled=$true } })
 $TxtPsuSerial.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtCpuAtpo.Focus() | Out-Null; $_.Handled=$true } })
 $TxtCpuAtpo.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtSeal1.Focus() | Out-Null; $_.Handled=$true } })
@@ -155,18 +153,18 @@ $TxtSeal1.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $BtnRun.Foc
 $BtnRun.Add_Click({
     try {
         if ($script:Worker -and -not $script:Worker.HasExited) { return }
+        if (-not (Test-Path -LiteralPath $ArchiveRoot)) { throw 'The evidence USB archive is not available. Reconnect the flash drive and try again.' }
         if (-not $script:Hardware) { Refresh-SitecHardware }
         $asset=$TxtAssetId.Text.Trim()
-        if ($asset -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$') { throw 'Automatic Asset ID is invalid. Scan/enter a valid physical asset label if you need to override it.' }
+        if ($asset -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$') { throw 'Asset ID is invalid. Scan/enter a valid physical asset label.' }
 
         $required=@()
         if (Get-SitecCaptureFlag 'RequirePsuSerial' $true) { $required += [pscustomobject]@{Name='PSU serial';Value=$TxtPsuSerial.Text} }
         if (Get-SitecCaptureFlag 'RequireCpuAtpo' $true) { $required += [pscustomobject]@{Name='CPU ATPO';Value=$TxtCpuAtpo.Text} }
         if (Get-SitecCaptureFlag 'RequireSeal1' $true) { $required += [pscustomobject]@{Name='Tamper seal #1';Value=$TxtSeal1.Text} }
-        foreach ($item in $required) {
-            if ([string]::IsNullOrWhiteSpace([string]$item.Value)) { throw "$($item.Name) must be scanned or confirmed before final QC." }
-        }
+        foreach ($item in $required) { if ([string]::IsNullOrWhiteSpace([string]$item.Value)) { throw "$($item.Name) must be scanned or confirmed before final QC." } }
 
+        $script:WorkRoot=New-SitecWorkingRoot
         $worker=Join-Path $root 'Invoke-SitecQC-Compact.ps1'
         $caseModel=[string]$profile.Expected.CaseModel
         $psuModel=[string]$profile.Expected.PsuModel
@@ -176,7 +174,7 @@ $BtnRun.Add_Click({
             '-AssetId',(Q $asset),'-ProfileId',(Q ([string]$profile.ProfileId)),'-Operator',(Q $automaticOperator),
             '-CaseModel',(Q $caseModel),'-PsuModel',(Q $psuModel),'-PsuSerial',(Q $TxtPsuSerial.Text.Trim()),
             '-CpuAtpo',(Q $TxtCpuAtpo.Text.Trim()),'-Cooler',(Q $cooler),'-Seal1',(Q $TxtSeal1.Text.Trim()),
-            '-PublicRoot',(Q $resolvedDataRoot)
+            '-ArchiveRoot',(Q $ArchiveRoot),'-WorkingRoot',(Q $script:WorkRoot)
         )
         $script:StartedAt=Get-Date
         $script:CurrentStatus=$null
@@ -189,10 +187,8 @@ $BtnRun.Add_Click({
         $TxtLog.Clear()
         $ProgressQc.Value=1
         $TxtStage.Text='Starting'
-        $TxtMessage.Text='QC worker launched...'
-    } catch {
-        [Windows.MessageBox]::Show($_.Exception.Message,'Cannot start QC') | Out-Null
-    }
+        $TxtMessage.Text='QC worker launched. Results will be archived to the USB drive...'
+    } catch { [Windows.MessageBox]::Show($_.Exception.Message,'Cannot start QC') | Out-Null }
 })
 
 $timer=New-Object Windows.Threading.DispatcherTimer
@@ -200,31 +196,34 @@ $timer.Interval=[TimeSpan]::FromSeconds(1)
 $timer.Add_Tick({
     if (-not $script:Worker) { return }
     $asset=$TxtAssetId.Text.Trim()
-    $assetRoot=Join-Path $internalDataRoot ("Assets\$asset\Runs")
-    if (Test-Path $assetRoot) {
-        $statusFile=Get-ChildItem -LiteralPath $assetRoot -Filter status.json -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $script:StartedAt.AddSeconds(-2) } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($statusFile) {
-            try {
-                $s=Get-Content $statusFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-                $script:CurrentStatus=$s
-                $ProgressQc.Value=[int]$s.Percent
-                $TxtStage.Text=[string]$s.Stage
-                $TxtMessage.Text=[string]$s.Message
-                $log=Join-Path $s.RunPath 'worker.log'
-                if (Test-Path $log) { $TxtLog.Text=Get-Content $log -Raw -Encoding UTF8; $TxtLog.ScrollToEnd() }
-            } catch {}
+    if ($script:WorkRoot) {
+        $assetRoot=Join-Path $script:WorkRoot ("Assets\$asset\Runs")
+        if (Test-Path $assetRoot) {
+            $statusFile=Get-ChildItem -LiteralPath $assetRoot -Filter status.json -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $script:StartedAt.AddSeconds(-2) } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+            if ($statusFile) {
+                try {
+                    $s=Get-Content $statusFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $script:CurrentStatus=$s
+                    $ProgressQc.Value=[int]$s.Percent
+                    $TxtStage.Text=[string]$s.Stage
+                    $TxtMessage.Text=[string]$s.Message
+                    $log=Join-Path $s.RunPath 'worker.log'
+                    if (Test-Path $log) { $TxtLog.Text=Get-Content $log -Raw -Encoding UTF8; $TxtLog.ScrollToEnd() }
+                } catch {}
+            }
         }
     }
     if ($script:Worker.HasExited) {
         $BtnRun.IsEnabled=$true
         $BtnDetect.IsEnabled=$true
-        $published=Get-SitecPublishedCertificatePath -PublicRoot $resolvedDataRoot -AssetId $asset
+        $published=Get-SitecPublishedCertificatePath -ArchiveRoot $ArchiveRoot -AssetId $asset
         if (Test-Path -LiteralPath $published) { $script:LastReport=$published }
         $BtnOpenLast.IsEnabled=[bool]$script:LastReport
-        if ($script:Worker.ExitCode -eq 0) { $TxtHeaderStatus.Text='PASS'; $TxtHeaderStatus.Foreground='#A8E6BE' }
-        elseif ($script:Worker.ExitCode -eq 2) { $TxtHeaderStatus.Text='FAIL'; $TxtHeaderStatus.Foreground='#FFB4AB' }
-        else { $TxtHeaderStatus.Text='ERROR'; $TxtHeaderStatus.Foreground='#FFB4AB' }
+        if ($script:Worker.ExitCode -eq 0) { $TxtHeaderStatus.Text='PASS'; $TxtHeaderStatus.Foreground='#A8E6BE'; $TxtMessage.Text="QC complete. PDF and fleet register saved to USB: $ArchiveRoot" }
+        elseif ($script:Worker.ExitCode -eq 2) { $TxtHeaderStatus.Text='FAIL'; $TxtHeaderStatus.Foreground='#FFB4AB'; $TxtMessage.Text="QC failed. PDF and failure diagnostics were saved to USB: $ArchiveRoot" }
+        else { $TxtHeaderStatus.Text='ERROR'; $TxtHeaderStatus.Foreground='#FFB4AB'; $TxtMessage.Text="QC error. Check the USB Failures folder if a diagnostic bundle was created." }
         $script:Worker=$null
+        $script:WorkRoot=$null
     }
 })
 $timer.Start()
