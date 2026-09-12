@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$AssetId,
-    [string]$DataRoot='C:\SitecQC-Data',
+    [string]$DataRoot='',
     [string]$CpuAtpo='',
     [string]$PsuSerial='',
     [string]$Seal1='',
@@ -11,6 +11,7 @@ param(
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
+if ([string]::IsNullOrWhiteSpace($DataRoot)) { $DataRoot=Get-SitecInternalDataRoot }
 
 $baselinePath=Join-Path $DataRoot ("Assets\$AssetId\Baseline\hardware-qc-manifest.json")
 if (-not (Test-Path -LiteralPath $baselinePath)) { throw "Baseline not found for ${AssetId}: $baselinePath" }
@@ -39,14 +40,10 @@ $checks += New-SitecCompareRow 'CPU ProcessorId' $baseline.Hardware.CPU.Processo
 $checks += New-SitecCompareRow 'RAM serial set' ((@($baseline.Hardware.Memory | Select-Object -ExpandProperty SerialNumber) | Sort-Object) -join '|') ((@($current.Memory | Select-Object -ExpandProperty SerialNumber) | Sort-Object) -join '|')
 $checks += New-SitecCompareRow 'RAM part set' ((@($baseline.Hardware.Memory | Select-Object -ExpandProperty PartNumber) | Sort-Object) -join '|') ((@($current.Memory | Select-Object -ExpandProperty PartNumber) | Sort-Object) -join '|') 'Configuration'
 
-# Only the expected/internal storage belongs to the assembled-PC identity.
-# USB flash drives used to carry SitecQC or evidence must never create a false CHANGED result.
 $baselineStorage=@(Get-SitecIdentityStorage -Hardware $baseline.Hardware -Profile $profile)
 $currentStorage=@(Get-SitecIdentityStorage -Hardware $current -Profile $profile)
 $checks += New-SitecCompareRow 'Storage serial set' ((@($baselineStorage | Select-Object -ExpandProperty SerialNumber) | Sort-Object) -join '|') ((@($currentStorage | Select-Object -ExpandProperty SerialNumber) | Sort-Object) -join '|')
 $checks += New-SitecCompareRow 'Storage model set' ((@($baselineStorage | Select-Object -ExpandProperty Model) | Sort-Object) -join '|') ((@($currentStorage | Select-Object -ExpandProperty Model) | Sort-Object) -join '|') 'Configuration'
-
-# BIOS is intentionally reported as a configuration change and is not part of the stable identity hash.
 $checks += New-SitecCompareRow 'BIOS version' $baseline.Hardware.BIOS.Version $current.BIOS.Version 'Configuration'
 
 if (-not [string]::IsNullOrWhiteSpace($CpuAtpo)) { $checks += New-SitecCompareRow 'CPU ATPO' $baseline.Physical.CpuAtpo $CpuAtpo }
@@ -73,5 +70,5 @@ $result | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $out -Encoding UTF
 $result.Checks | Format-Table -AutoSize
 Write-Host "Verification identity status: $($result.Status)" -ForegroundColor $(if($result.Status -eq 'MATCH'){'Green'}else{'Red'})
 if ($result.ConfigurationChanges -gt 0) { Write-Host "Configuration changes: $($result.ConfigurationChanges)" -ForegroundColor Yellow }
-Write-Host "Saved: $out"
+Write-Host "Saved internally: $out"
 if ($result.Status -eq 'MATCH') { exit 0 } else { exit 3 }
