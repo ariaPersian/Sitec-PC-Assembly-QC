@@ -16,16 +16,17 @@ function New-SitecHardwareIdentity {
     $h=$Manifest.Hardware
     $p=$Manifest.Physical
     $profile=$Manifest.Profile
-    $lines=@('SCHEMA=SITEC-HWID-V1')
+    $lines=@('SCHEMA=SITEC-HWID-V2')
 
+    # HWID v2 is intentionally hardware-only. Asset ID, tamper seals, Windows,
+    # BIOS version, drivers, benchmark numbers, timestamps, USB devices and other
+    # operational metadata are excluded so an OS reinstall or reseal does not
+    # change the identity. Replacing a unique core component does change it.
     $stable=@(
-        [pscustomobject]@{Name='ASSET';Value=$Manifest.AssetId},
         [pscustomobject]@{Name='SYSTEM_UUID';Value=$h.SystemUUID},
         [pscustomobject]@{Name='MOTHERBOARD_SERIAL';Value=$h.Motherboard.SerialNumber},
         [pscustomobject]@{Name='CPU_ATPO';Value=$p.CpuAtpo},
-        [pscustomobject]@{Name='PSU_SERIAL';Value=$p.PsuSerial},
-        [pscustomobject]@{Name='SEAL1';Value=$p.Seal1},
-        [pscustomobject]@{Name='SEAL2';Value=$p.Seal2}
+        [pscustomobject]@{Name='PSU_SERIAL';Value=$p.PsuSerial}
     )
     foreach ($item in $stable) {
         $value=ConvertTo-SitecIdentityValue $item.Value
@@ -47,7 +48,7 @@ function New-SitecHardwareIdentity {
     finally { $sha.Dispose() }
 
     [pscustomobject]@{
-        Schema='SITEC-HWID-V1'
+        Schema='SITEC-HWID-V2'
         Sha256=$hash
         CanonicalText=$canonical
         RamSerials=$ramSerials
@@ -68,7 +69,8 @@ function Protect-SitecManifest {
     $runPath=Split-Path -Parent $ManifestPath
     $identityTextPath=Join-Path $runPath 'hardware-identity.txt'
     $identityShaPath=Join-Path $runPath 'hardware-identity.sha256'
-    Set-Content -LiteralPath $identityTextPath -Value $identity.CanonicalText -Encoding ASCII
+    $utf8NoBom=New-Object System.Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText($identityTextPath,[string]$identity.CanonicalText,$utf8NoBom)
     Set-Content -LiteralPath $identityShaPath -Value ($identity.Sha256+'  hardware-identity.txt') -Encoding ASCII
 
     $result=[ordered]@{
@@ -114,9 +116,6 @@ function Protect-SitecManifest {
 function Write-SitecEvidenceHashes {
     param([Parameter(Mandatory)][string]$RunPath)
 
-    # The customer certificate contains both hashes:
-    # - Hardware Identity SHA-256: stable across reruns while unique parts stay the same.
-    # - Manifest SHA-256: protects the exact evidence document for this run.
     $identityShaPath=Join-Path $RunPath 'hardware-identity.sha256'
     $htmlPath=Join-Path $RunPath 'QC-Certificate.html'
     if ((Test-Path -LiteralPath $identityShaPath) -and (Test-Path -LiteralPath $htmlPath)) {
