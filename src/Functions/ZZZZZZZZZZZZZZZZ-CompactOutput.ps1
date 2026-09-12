@@ -1,121 +1,69 @@
-function Get-SitecEvidenceArchiveRoot {
+function Get-SitecBaselineRoot {
     [CmdletBinding()]
     param([string]$LauncherDir='')
 
-    if (-not [string]::IsNullOrWhiteSpace($env:SITECQC_ARCHIVE_ROOT)) {
-        return ([IO.Path]::GetFullPath([string]$env:SITECQC_ARCHIVE_ROOT))
+    if (-not [string]::IsNullOrWhiteSpace($env:SITECQC_BASELINE_ROOT)) {
+        return ([IO.Path]::GetFullPath([string]$env:SITECQC_BASELINE_ROOT))
     }
-
     if (-not [string]::IsNullOrWhiteSpace($LauncherDir)) {
-        try {
-            $driveRoot=[IO.Path]::GetPathRoot([IO.Path]::GetFullPath($LauncherDir))
-            if ($driveRoot) {
-                $drive=New-Object IO.DriveInfo($driveRoot)
-                if ($drive.IsReady -and $drive.DriveType -eq [IO.DriveType]::Removable) {
-                    return (Join-Path $drive.RootDirectory.FullName 'SitecQC-Archive')
-                }
-            }
-        } catch {}
+        return ([IO.Path]::GetFullPath($LauncherDir))
     }
-
-    $removable=@([IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady -and $_.DriveType -eq [IO.DriveType]::Removable })
-    $existing=@($removable | Where-Object { Test-Path -LiteralPath (Join-Path $_.RootDirectory.FullName 'SitecQC-Archive') })
-    if ($existing.Count -eq 1) { return (Join-Path $existing[0].RootDirectory.FullName 'SitecQC-Archive') }
-    if ($removable.Count -eq 1) { return (Join-Path $removable[0].RootDirectory.FullName 'SitecQC-Archive') }
-    if ($removable.Count -eq 0) { throw 'No removable evidence USB drive was detected. Insert the SITEC archive flash drive and start SitecQC again.' }
-    throw 'More than one removable drive is connected. Run SitecQC.exe from the archive flash drive so the evidence destination is unambiguous.'
-}
-
-function Get-SitecArchiveStateRoot {
-    param([Parameter(Mandatory)][string]$ArchiveRoot)
-    Join-Path $ArchiveRoot '.state'
+    'C:\BaselineQC'
 }
 
 function Get-SitecPublishedReportRoot {
-    param([Parameter(Mandatory)][Alias('PublicRoot')][string]$ArchiveRoot)
-    Join-Path $ArchiveRoot 'Reports'
+    param([Parameter(Mandatory)][Alias('PublicRoot','ArchiveRoot')][string]$BaselineRoot)
+    Join-Path $BaselineRoot 'Output'
 }
 
 function Get-SitecPublishedCertificatePath {
-    param([Parameter(Mandatory)][Alias('PublicRoot')][string]$ArchiveRoot,[Parameter(Mandatory)][string]$AssetId)
-    Join-Path (Get-SitecPublishedReportRoot -ArchiveRoot $ArchiveRoot) ("{0}-QC-Certificate.pdf" -f $AssetId)
+    param([Parameter(Mandatory)][Alias('PublicRoot','ArchiveRoot')][string]$BaselineRoot,[Parameter(Mandatory)][string]$AssetId)
+    Join-Path (Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot) ("{0}-QC-Certificate.pdf" -f $AssetId)
 }
 
-function Get-SitecFailureRoot {
-    param([Parameter(Mandatory)][string]$ArchiveRoot)
-    Join-Path $ArchiveRoot 'Failures'
+function Get-SitecPublishedBaselinePath {
+    param([Parameter(Mandatory)][string]$BaselineRoot,[Parameter(Mandatory)][string]$AssetId)
+    Join-Path (Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot) ("{0}-Baseline.json" -f $AssetId)
 }
 
-function Initialize-SitecPortableArchive {
+function Get-SitecFailureBundlePath {
+    param([Parameter(Mandatory)][string]$BaselineRoot,[Parameter(Mandatory)][string]$AssetId)
+    Join-Path (Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot) ("{0}-LastFailure.zip" -f $AssetId)
+}
+
+function Initialize-SitecBaselineLayout {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ArchiveRoot)
+    param([Parameter(Mandatory)][string]$BaselineRoot)
 
-    $reports=Get-SitecPublishedReportRoot -ArchiveRoot $ArchiveRoot
-    $state=Get-SitecArchiveStateRoot -ArchiveRoot $ArchiveRoot
-    $failures=Get-SitecFailureRoot -ArchiveRoot $ArchiveRoot
-    New-Item -ItemType Directory -Path $ArchiveRoot,$reports,$state,$failures -Force | Out-Null
-    try { (Get-Item -LiteralPath $state).Attributes = (Get-Item -LiteralPath $state).Attributes -bor [IO.FileAttributes]::Hidden } catch {}
+    $output=Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot
+    New-Item -ItemType Directory -Path $BaselineRoot,$output -Force | Out-Null
 
-    # One-time migration from older releases. Durable evidence is copied to the USB archive first,
-    # then local persistent QC folders are removed so the delivered PC does not retain evidence/state.
-    $legacyRoots=@(
-        'C:\SitecQC-Data',
-        (Join-Path $env:ProgramData 'SitecQC\Data')
-    ) | Select-Object -Unique
-
-    foreach ($legacy in $legacyRoots) {
-        if (-not (Test-Path -LiteralPath $legacy)) { continue }
-
-        foreach ($pdf in @(Get-ChildItem -LiteralPath $legacy -Filter 'QC-Certificate.pdf' -Recurse -File -ErrorAction SilentlyContinue)) {
-            $asset=$null
-            if ($pdf.FullName -match '\\Assets\\([^\\]+)\\') { $asset=$Matches[1] }
-            elseif ($pdf.BaseName -match '^(.+?)-QC-Certificate$') { $asset=$Matches[1] }
-            if ($asset) { Copy-Item -LiteralPath $pdf.FullName -Destination (Get-SitecPublishedCertificatePath -ArchiveRoot $ArchiveRoot -AssetId $asset) -Force }
-        }
-
-        foreach ($name in @('fleet-serial-index.csv','fleet-runs.csv')) {
-            $source=Join-Path $legacy $name
-            if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $state $name) -Force }
-        }
-
-        $legacyAssets=Join-Path $legacy 'Assets'
-        if (Test-Path -LiteralPath $legacyAssets) {
-            foreach ($assetDir in @(Get-ChildItem -LiteralPath $legacyAssets -Directory -ErrorAction SilentlyContinue)) {
-                $baseline=Join-Path $assetDir.FullName 'Baseline'
-                if (Test-Path -LiteralPath $baseline) {
-                    $target=Join-Path $state ("Assets\{0}\Baseline" -f $assetDir.Name)
-                    New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
-                    Copy-Item -LiteralPath $baseline -Destination $target -Recurse -Force
-                }
-            }
-        }
-    }
-
-    $legacySupport=Join-Path $env:ProgramData 'SitecQC\Support'
-    if (Test-Path -LiteralPath $legacySupport) {
-        foreach ($zip in @(Get-ChildItem -LiteralPath $legacySupport -Filter '*-LastFailure.zip' -File -ErrorAction SilentlyContinue)) {
-            Copy-Item -LiteralPath $zip.FullName -Destination (Join-Path $failures $zip.Name) -Force
-        }
-    }
-
-    foreach ($path in @('C:\SitecQC-Data',(Join-Path $env:ProgramData 'SitecQC\Data'),(Join-Path $env:ProgramData 'SitecQC\Support'),(Join-Path $env:ProgramData 'SitecQC\App'))) {
+    # v3.8 stores no durable QC database under ProgramData. Remove only known
+    # SitecQC implementation folders from older builds; the operator-visible
+    # C:\BaselineQC folder is preserved.
+    foreach ($path in @(
+        (Join-Path $env:ProgramData 'SitecQC\Data'),
+        (Join-Path $env:ProgramData 'SitecQC\Support'),
+        (Join-Path $env:ProgramData 'SitecQC\App')
+    )) {
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    $programDataRoot=Join-Path $env:ProgramData 'SitecQC'
     try {
-        if ((Test-Path -LiteralPath $programDataRoot) -and @(Get-ChildItem -LiteralPath $programDataRoot -Force -ErrorAction SilentlyContinue).Count -eq 0) {
-            Remove-Item -LiteralPath $programDataRoot -Force -ErrorAction SilentlyContinue
+        $pd=Join-Path $env:ProgramData 'SitecQC'
+        Remove-Item -LiteralPath (Join-Path $pd 'asset-id.txt') -Force -ErrorAction SilentlyContinue
+        if ((Test-Path -LiteralPath $pd) -and @(Get-ChildItem -LiteralPath $pd -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+            Remove-Item -LiteralPath $pd -Force -ErrorAction SilentlyContinue
         }
     } catch {}
 
-    [pscustomobject]@{ArchiveRoot=$ArchiveRoot;ReportRoot=$reports;StateRoot=$state;FailureRoot=$failures;FleetRegister=(Join-Path $ArchiveRoot 'Fleet-Register.csv')}
+    [pscustomobject]@{BaselineRoot=$BaselineRoot;OutputRoot=$output}
 }
 
-# Backward-compatible name used by older tests/source tooling.
+# Backward-compatible name for source/tests from older releases.
 function Initialize-SitecCompactOutput {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][Alias('PublicRoot')][string]$ArchiveRoot,[string]$InternalRoot='')
-    Initialize-SitecPortableArchive -ArchiveRoot $ArchiveRoot
+    param([Parameter(Mandatory)][Alias('PublicRoot','ArchiveRoot')][string]$BaselineRoot,[string]$InternalRoot='')
+    Initialize-SitecBaselineLayout -BaselineRoot $BaselineRoot
 }
 
 function New-SitecWorkingRoot {
@@ -124,121 +72,110 @@ function New-SitecWorkingRoot {
     $path
 }
 
+# v3.8 intentionally has no persistent fleet state on the tested PC. These
+# compatibility shims leave the temporary working root empty.
 function Seed-SitecWorkingState {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ArchiveRoot,[Parameter(Mandatory)][string]$WorkingRoot)
-    $state=Get-SitecArchiveStateRoot -ArchiveRoot $ArchiveRoot
+    param([string]$ArchiveRoot,[Parameter(Mandatory)][string]$WorkingRoot)
     New-Item -ItemType Directory -Path $WorkingRoot -Force | Out-Null
-    foreach ($name in @('fleet-serial-index.csv','fleet-runs.csv')) {
-        $source=Join-Path $state $name
-        if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $WorkingRoot $name) -Force }
-    }
-    $assets=Join-Path $state 'Assets'
-    if (Test-Path -LiteralPath $assets) { Copy-Item -LiteralPath $assets -Destination (Join-Path $WorkingRoot 'Assets') -Recurse -Force }
 }
-
 function Sync-SitecWorkingState {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ArchiveRoot,[Parameter(Mandatory)][string]$WorkingRoot,[Parameter(Mandatory)][string]$AssetId)
-    $state=Get-SitecArchiveStateRoot -ArchiveRoot $ArchiveRoot
-    New-Item -ItemType Directory -Path $state -Force | Out-Null
-    foreach ($name in @('fleet-serial-index.csv','fleet-runs.csv')) {
-        $source=Join-Path $WorkingRoot $name
-        if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $state $name) -Force }
-    }
-    $baseline=Join-Path $WorkingRoot ("Assets\{0}\Baseline" -f $AssetId)
-    if (Test-Path -LiteralPath $baseline) {
-        $target=Join-Path $state ("Assets\{0}\Baseline" -f $AssetId)
-        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue }
-        New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
-        Copy-Item -LiteralPath $baseline -Destination $target -Recurse -Force
-    }
+    param([string]$ArchiveRoot,[Parameter(Mandatory)][string]$WorkingRoot,[Parameter(Mandatory)][string]$AssetId)
 }
 
 function Publish-SitecCertificate {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][Alias('PublicRoot')][string]$ArchiveRoot,[Parameter(Mandatory)][string]$AssetId,[Parameter(Mandatory)][string]$SourcePdf)
+    param([Parameter(Mandatory)][Alias('PublicRoot','ArchiveRoot')][string]$BaselineRoot,[Parameter(Mandatory)][string]$AssetId,[Parameter(Mandatory)][string]$SourcePdf)
     if (-not (Test-Path -LiteralPath $SourcePdf)) { return $null }
-    $reportRoot=Get-SitecPublishedReportRoot -ArchiveRoot $ArchiveRoot
-    New-Item -ItemType Directory -Path $reportRoot -Force | Out-Null
-    $destination=Get-SitecPublishedCertificatePath -ArchiveRoot $ArchiveRoot -AssetId $AssetId
+    $output=Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot
+    New-Item -ItemType Directory -Path $output -Force | Out-Null
+    $destination=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $AssetId
     Copy-Item -LiteralPath $SourcePdf -Destination $destination -Force
+    $destination
+}
+
+function Publish-SitecBaselineJson {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaselineRoot,
+        [Parameter(Mandatory)][string]$AssetId,
+        [Parameter(Mandatory)][string]$ManifestPath,
+        [string]$CertificatePath=''
+    )
+    if (-not (Test-Path -LiteralPath $ManifestPath)) { return $null }
+    $run=Get-Content -LiteralPath $ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $storage=@(Get-SitecIdentityStorage -Hardware $run.Hardware -Profile $run.Profile)
+
+    $baseline=[ordered]@{
+        Schema='SITEC-BASELINE-V1'
+        AssetId=[string]$run.AssetId
+        TamperSeal=[string]$run.Physical.Seal1
+        CreatedAt=[string]$run.CompletedAt
+        OverallStatus=[string]$run.OverallStatus
+        Profile=[ordered]@{
+            Id=[string]$run.Profile.ProfileId
+            Version=[string]$run.Profile.ProfileVersion
+        }
+        Case=[ordered]@{Model=[string]$run.Physical.CaseModel}
+        PowerSupply=[ordered]@{Model=[string]$run.Physical.PsuModel;Serial=[string]$run.Physical.PsuSerial}
+        CpuCooler=[ordered]@{Model=[string]$run.Physical.Cooler}
+        CPU=[ordered]@{
+            Model=[string]$run.Hardware.CPU.Model
+            Cores=$run.Hardware.CPU.Cores
+            LogicalProcessors=$run.Hardware.CPU.LogicalProcessors
+            Atpo=[string]$run.Physical.CpuAtpo
+        }
+        Motherboard=[ordered]@{
+            Manufacturer=[string]$run.Hardware.Motherboard.Manufacturer
+            Model=[string]$run.Hardware.Motherboard.Model
+            Serial=[string]$run.Hardware.Motherboard.SerialNumber
+        }
+        SystemUUID=[string]$run.Hardware.SystemUUID
+        BIOS=[ordered]@{Version=[string]$run.Hardware.BIOS.Version;ReleaseDate=[string]$run.Hardware.BIOS.ReleaseDate}
+        Memory=@($run.Hardware.Memory | ForEach-Object {
+            [ordered]@{Slot=[string]$_.Slot;Manufacturer=[string]$_.Manufacturer;PartNumber=[string]$_.PartNumber;Serial=[string]$_.SerialNumber;CapacityGB=$_.CapacityGB;ConfiguredSpeedMHz=$_.ConfiguredSpeedMHz}
+        })
+        Storage=@($storage | ForEach-Object {
+            [ordered]@{Model=[string]$_.Model;Serial=[string]$_.SerialNumber;Firmware=[string]$_.FirmwareVersion;SizeGB=$_.SizeGB;BusType=[string]$_.BusType}
+        })
+        Graphics=@($run.Hardware.Graphics | ForEach-Object { [string]$_.Name })
+        HardwareIdentity=[ordered]@{
+            Schema=[string]$run.Security.HardwareIdentitySchema
+            Sha256=[string]$run.Security.HardwareIdentitySha256
+        }
+        ManifestSha256=[string]$run.Security.Sha256
+        CertificateFile=$(if($CertificatePath){[IO.Path]::GetFileName($CertificatePath)}else{''})
+    }
+
+    $destination=Get-SitecPublishedBaselinePath -BaselineRoot $BaselineRoot -AssetId $AssetId
+    $baseline | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $destination -Encoding UTF8
     $destination
 }
 
 function Save-SitecSupportBundle {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ArchiveRoot,[Parameter(Mandatory)][string]$AssetId,[Parameter(Mandatory)][string]$RunPath)
+    param([Parameter(Mandatory)][Alias('ArchiveRoot')][string]$BaselineRoot,[Parameter(Mandatory)][string]$AssetId,[Parameter(Mandatory)][string]$RunPath)
     if (-not (Test-Path -LiteralPath $RunPath)) { return $null }
-    $root=Get-SitecFailureRoot -ArchiveRoot $ArchiveRoot
-    New-Item -ItemType Directory -Path $root -Force | Out-Null
-    $zip=Join-Path $root ("{0}-LastFailure.zip" -f $AssetId)
+    $zip=Get-SitecFailureBundlePath -BaselineRoot $BaselineRoot -AssetId $AssetId
     Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
     Compress-Archive -Path (Join-Path $RunPath '*') -DestinationPath $zip -CompressionLevel Optimal -Force
     $zip
-}
-
-function Update-SitecFleetRegister {
-    [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ArchiveRoot,[Parameter(Mandatory)]$Run,[Parameter(Mandatory)][string]$CertificatePath)
-
-    $register=Join-Path $ArchiveRoot 'Fleet-Register.csv'
-    $rows=@()
-    if (Test-Path -LiteralPath $register) { $rows=@(Import-Csv -LiteralPath $register -ErrorAction SilentlyContinue) }
-    $rows=@($rows | Where-Object { $_.AssetId -ne [string]$Run.AssetId })
-
-    $ramParts=(@($Run.Hardware.Memory | ForEach-Object { ([string]$_.PartNumber).Trim() }) | Where-Object { $_ } | Sort-Object -Unique) -join '|'
-    $ramSerials=(@($Run.Hardware.Memory | ForEach-Object { ([string]$_.SerialNumber).Trim() }) | Where-Object { $_ } | Sort-Object) -join '|'
-    $storage=@(Get-SitecIdentityStorage -Hardware $Run.Hardware -Profile $Run.Profile)
-    $storageModels=(@($storage | ForEach-Object { ([string]$_.Model).Trim() }) | Where-Object { $_ } | Sort-Object -Unique) -join '|'
-    $storageSerials=(@($storage | ForEach-Object { ([string]$_.SerialNumber).Trim() }) | Where-Object { $_ } | Sort-Object) -join '|'
-    $gpu=(@($Run.Hardware.Graphics | ForEach-Object { ([string]$_.Name).Trim() }) | Where-Object { $_ } | Sort-Object -Unique) -join '|'
-
-    $rows += [pscustomobject][ordered]@{
-        AssetId=[string]$Run.AssetId
-        TamperSeal=[string]$Run.Physical.Seal1
-        TestDate=[string]$Run.CompletedAt
-        OverallStatus=[string]$Run.OverallStatus
-        CaseModel=[string]$Run.Physical.CaseModel
-        MotherboardModel=[string]$Run.Hardware.Motherboard.Model
-        MotherboardSerial=[string]$Run.Hardware.Motherboard.SerialNumber
-        CpuModel=[string]$Run.Hardware.CPU.Model
-        CpuAtpo=[string]$Run.Physical.CpuAtpo
-        CpuCooler=[string]$Run.Physical.Cooler
-        PsuModel=[string]$Run.Physical.PsuModel
-        PsuSerial=[string]$Run.Physical.PsuSerial
-        MemoryGB=[string]$Run.Hardware.MemoryTotalGB
-        RamPartNumbers=$ramParts
-        RamSerials=$ramSerials
-        StorageModels=$storageModels
-        StorageSerials=$storageSerials
-        BiosVersion=[string]$Run.Hardware.BIOS.Version
-        Gpu=$gpu
-        SystemUUID=[string]$Run.Hardware.SystemUUID
-        HardwareIdentitySha256=[string]$Run.Security.HardwareIdentitySha256
-        ManifestSha256=[string]$Run.Security.Sha256
-        CertificateFile=[IO.Path]::GetFileName($CertificatePath)
-    }
-    $rows | Sort-Object AssetId | Export-Csv -LiteralPath $register -NoTypeInformation -Encoding UTF8
-    $register
 }
 
 function Remove-SitecLocalQcResidue {
     [CmdletBinding()]
     param([string]$WorkingRoot='')
     if ($WorkingRoot -and (Test-Path -LiteralPath $WorkingRoot)) { Remove-Item -LiteralPath $WorkingRoot -Recurse -Force -ErrorAction SilentlyContinue }
-    foreach ($path in @('C:\SitecQC-Data',(Join-Path $env:ProgramData 'SitecQC\Data'),(Join-Path $env:ProgramData 'SitecQC\Support'),(Join-Path $env:ProgramData 'SitecQC\App'))) {
+    foreach ($path in @(
+        (Join-Path $env:ProgramData 'SitecQC\Data'),
+        (Join-Path $env:ProgramData 'SitecQC\Support'),
+        (Join-Path $env:ProgramData 'SitecQC\App')
+    )) {
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    try {
-        $pd=Join-Path $env:ProgramData 'SitecQC'
-        $assetState=Join-Path $pd 'asset-id.txt'
-        Remove-Item -LiteralPath $assetState -Force -ErrorAction SilentlyContinue
-        if ((Test-Path -LiteralPath $pd) -and @(Get-ChildItem -LiteralPath $pd -Force -ErrorAction SilentlyContinue).Count -eq 0) { Remove-Item -LiteralPath $pd -Force -ErrorAction SilentlyContinue }
-    } catch {}
 }
 
-# Older callers use this name; completed runs are now removed with the whole temporary working root.
 function Remove-SitecCompletedRuns {
     [CmdletBinding()]
     param([Parameter(Mandatory)][Alias('InternalRoot')][string]$WorkingRoot,[Parameter(Mandatory)][string]$AssetId)
