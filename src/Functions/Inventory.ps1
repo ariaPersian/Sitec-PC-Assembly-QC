@@ -27,15 +27,7 @@ function Get-SitecAutoAssetId {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Hardware)
 
-    $stateRoot=Join-Path $env:ProgramData 'SitecQC'
-    $statePath=Join-Path $stateRoot 'asset-id.txt'
-    try {
-        if (Test-Path -LiteralPath $statePath) {
-            $saved=(Get-Content -LiteralPath $statePath -Raw -ErrorAction Stop).Trim()
-            if ($saved -match '^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$') { return $saved }
-        }
-    } catch {}
-
+    # Asset ID is derived on every launch. Nothing is cached on the customer PC.
     $id=$null
     if ($Hardware.PSObject.Properties['SystemEnclosure'] -and (Test-SitecUsefulIdentifier $Hardware.SystemEnclosure.SMBIOSAssetTag)) {
         $token=ConvertTo-SitecAssetToken ([string]$Hardware.SystemEnclosure.SMBIOSAssetTag)
@@ -52,11 +44,6 @@ function Get-SitecAutoAssetId {
         if ($token) { $id='PC-' + $token }
     }
     if (-not $id) { $id='PC-' + [guid]::NewGuid().ToString('N').Substring(0,12).ToUpperInvariant() }
-
-    try {
-        New-Item -ItemType Directory -Path $stateRoot -Force | Out-Null
-        Set-Content -LiteralPath $statePath -Value $id -Encoding ASCII
-    } catch {}
     $id
 }
 
