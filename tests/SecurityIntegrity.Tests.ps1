@@ -11,30 +11,39 @@ try {
         AssetId='CASE-SECURITY-TEST'
         RunId='CASE-SECURITY-TEST-20260911-000000'
         Profile=$profile
-        Physical=[pscustomobject]@{
-            PsuSerial='PSU-TEST-0001'
-            CpuAtpo='M6M71N2102883'
-            Seal1='SEAL-TEST-0001'
-            Seal2=''
-        }
+        Physical=[pscustomobject]@{PsuSerial='PSU-TEST-0001';CpuAtpo='M6M71N2102883';Seal1='SEAL-TEST-0001';Seal2=''}
         Hardware=[pscustomobject]@{
             SystemUUID='11111111-2222-3333-4444-555555555555'
             Motherboard=[pscustomobject]@{SerialNumber='MB-TEST-0001'}
             Memory=@([pscustomobject]@{SerialNumber='RAM-TEST-0001'})
             Storage=@([pscustomobject]@{Model='Samsung SSD 990 PRO 1TB';FriendlyName='Samsung SSD 990 PRO 1TB';SerialNumber='SSD-TEST-0001';BusType='NVMe'})
+            OperatingSystem=[pscustomobject]@{Caption='Windows 10 Pro';BuildNumber='19045'}
         }
     }
+
+    # HWID v2 must ignore Windows / administrative / seal changes but must react
+    # to replacement of uniquely serialized core hardware.
+    $id1=New-SitecHardwareIdentity -Manifest $manifestObject
+    if ($id1.Schema -ne 'SITEC-HWID-V2') { throw "Unexpected HWID schema: $($id1.Schema)" }
+    $osChanged=($manifestObject | ConvertTo-Json -Depth 30 | ConvertFrom-Json)
+    $osChanged.AssetId='DIFFERENT-ASSET'
+    $osChanged.Physical.Seal1='DIFFERENT-SEAL'
+    $osChanged.Hardware.OperatingSystem.Caption='Windows 11 Pro'
+    $osChanged.Hardware.OperatingSystem.BuildNumber='26100'
+    $id2=New-SitecHardwareIdentity -Manifest $osChanged
+    if ($id1.Sha256 -ne $id2.Sha256) { throw 'HWID changed after Windows/Asset ID/tamper-seal-only changes.' }
+
+    $ssdChanged=($manifestObject | ConvertTo-Json -Depth 30 | ConvertFrom-Json)
+    $ssdChanged.Hardware.Storage[0].SerialNumber='SSD-REPLACED-0002'
+    $id3=New-SitecHardwareIdentity -Manifest $ssdChanged
+    if ($id1.Sha256 -eq $id3.Sha256) { throw 'HWID did not change after internal SSD replacement.' }
+
     $manifest=Join-Path $temp 'hardware-qc-manifest.json'
     $manifestObject | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $manifest -Encoding UTF8
     $context=[pscustomobject]@{
         ProjectRoot=$repo
         Settings=[pscustomobject]@{
-            Security=[pscustomobject]@{
-                SigningCertificateThumbprint=''
-                RequireDigitalSignature=$true
-                AutoCreateEphemeralCertificate=$true
-                EphemeralKeyLength=2048
-            }
+            Security=[pscustomobject]@{SigningCertificateThumbprint='';RequireDigitalSignature=$true;AutoCreateEphemeralCertificate=$true;EphemeralKeyLength=2048}
         }
     }
 
@@ -43,6 +52,7 @@ try {
     if (-not $security.ManifestSignatureVerified -or -not $security.HardwareIdentitySignatureVerified) { throw 'Immediate signature verification did not pass.' }
     if ($security.SignatureMode -ne 'EphemeralSelfSigned') { throw "Unexpected signature mode: $($security.SignatureMode)" }
     if ($security.PrivateKeyRetained) { throw 'Ephemeral private key must not be retained.' }
+    if ($security.HardwareIdentitySchema -ne 'SITEC-HWID-V2') { throw 'Protect-SitecManifest did not record HWID v2.' }
 
     $identity=Join-Path $temp 'hardware-identity.txt'
     $identitySha=Join-Path $temp 'hardware-identity.sha256'
@@ -55,9 +65,7 @@ try {
 
     $actual=(Get-FileHash -LiteralPath $identity -Algorithm SHA256).Hash.ToUpperInvariant()
     $declared=((Get-Content -LiteralPath $identitySha -TotalCount 1) -split '\s+')[0].ToUpperInvariant()
-    if ($actual -ne $security.HardwareIdentitySha256 -or $declared -ne $actual) {
-        throw "HWID file hash mismatch: actual=$actual result=$($security.HardwareIdentitySha256) declared=$declared"
-    }
+    if ($actual -ne $security.HardwareIdentitySha256 -or $declared -ne $actual) { throw "HWID file hash mismatch: actual=$actual result=$($security.HardwareIdentitySha256) declared=$declared" }
     if (-not (Test-SitecEvidenceSignature -DataPath $manifest -SignaturePath $manifestSig -CertificatePath $cert)) { throw 'Manifest signature verification failed.' }
     if (-not (Test-SitecEvidenceSignature -DataPath $identity -SignaturePath $identitySig -CertificatePath $cert)) { throw 'Identity signature verification failed.' }
 
@@ -67,8 +75,6 @@ try {
     [IO.File]::AppendAllText($identity,'TAMPER',[Text.Encoding]::ASCII)
     if (Test-SitecEvidenceSignature -DataPath $identity -SignaturePath $identitySig -CertificatePath $cert) { throw 'Tampered identity unexpectedly verified.' }
 
-    Write-Host 'Security integrity, byte-stable HWID and one-time signature tests passed.' -ForegroundColor Green
+    Write-Host 'Security integrity, OS-independent HWID v2 and one-time signature tests passed.' -ForegroundColor Green
 }
-finally {
-    Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
-}
+finally { Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue }
