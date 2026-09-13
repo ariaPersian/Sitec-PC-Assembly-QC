@@ -1,6 +1,6 @@
 # Production Operations Guide
 
-This document describes the production procedure for **SitecQC v3.8.0 / BaselineQC-local**.
+This document describes the production procedure for **SitecQC v3.9.1 / BaselineQC-local / Asset-scoped data root**.
 
 ## 1. Production package and location
 
@@ -13,7 +13,7 @@ C:\BaselineQC\
 └── SitecQC.exe
 ```
 
-Run the executable from the local system drive. It requests Administrator elevation and extracts its embedded runtime only to a disposable `%TEMP%\SitecQC-App-*` location. No persistent application payload, fleet database or baseline database is required under ProgramData.
+Run the executable from the local system drive. It requests Administrator elevation and extracts its embedded launcher payload only to a disposable `%TEMP%\SitecQC-App-*` location. No persistent application payload, fleet database or baseline database is required under ProgramData.
 
 Normal operators run only `SitecQC.exe`. Repository PowerShell scripts are development/support tools.
 
@@ -59,12 +59,31 @@ Profile, Operator and Tamper seal #2 are not production input fields.
 
 Use a scanner whenever possible. CPU Full ATPO should come from Intel's 2D matrix/box label; the Windows ProcessorId/CPUID is not a replacement for the unique Full ATPO.
 
-## 5. Normal operator procedure
+## 5. Asset-scoped QC data root
+
+The normal production GUI no longer uses a single shared `C:\SitecQC-Data` scratch folder. Once the Asset ID is confirmed, the working folder is derived from that Asset ID.
+
+Examples:
+
+```text
+Asset ID     Scratch data root
+CASE-001  -> C:\SitecQC-Data-001
+CASE-027  -> C:\SitecQC-Data-027
+PC-200    -> C:\SitecQC-Data-200
+```
+
+The trailing numeric serial is preserved exactly, including leading zeroes. If the Asset ID has no trailing numeric portion, the safe complete Asset ID is used instead, for example `CASE-TEST -> C:\SitecQC-Data-CASE-TEST`.
+
+Before a new run starts for the same Asset ID, SitecQC removes stale residue from that Asset-specific scratch root. This avoids carrying benchmark/log/index data from an interrupted older run into the new run.
+
+The `SitecQC-Data-*` directory is **not** the final evidence archive. It is transient runtime data and is deleted during normal final cleanup.
+
+## 6. Normal operator procedure
 
 1. Confirm that no removable storage is attached.
 2. Open `C:\BaselineQC\SitecQC.exe` and approve UAC.
 3. Review automatically detected hardware.
-4. Confirm/scan Asset ID.
+4. Confirm/scan Asset ID. At run start, SitecQC creates the corresponding `C:\SitecQC-Data-*` scratch folder.
 5. Scan PSU Serial.
 6. Scan CPU Full ATPO.
 7. Confirm Tamper seal #1 (normally already copied from Asset ID).
@@ -74,7 +93,7 @@ Use a scanner whenever possible. CPU Full ATPO should come from Intel's 2D matri
 
 Hardware discovery occurs automatically at startup; use **Refresh Hardware** only after a real hardware/configuration change.
 
-## 6. QC workload
+## 7. QC workload
 
 Production QC includes:
 
@@ -89,13 +108,13 @@ Production QC includes:
 
 DiskSpd operates on temporary test files rather than intentionally targeting a raw physical disk. Temporary workload files are removed during cleanup.
 
-## 7. PASS/FAIL policy
+## 8. PASS/FAIL policy
 
 A normal PASS requires the expected BOM and mandatory physical identifiers to validate, CPU/RAM/storage workloads to complete, deterministic RAM errors to remain zero, and WHEA hardware errors to remain zero. Thresholds remain versioned in the project profile/configuration.
 
-Cross-PC duplicate-serial detection is **not** persisted on the customer PC in v3.8. Duplicate checks across the 180-PC fleet belong to the company-side archive/master Excel workflow after Baseline JSON files are collected.
+Cross-PC duplicate-serial detection is **not** persisted on the customer PC. Duplicate checks across the fleet belong to the company-side archive/master Excel workflow after Baseline JSON files are collected.
 
-## 8. Local durable output
+## 9. Local durable output
 
 On a successful run the customer PC keeps only compact handover data:
 
@@ -109,6 +128,8 @@ C:\BaselineQC\
 
 The PDF is the human-readable document for the customer and internal paper record. The JSON is the machine-readable record for later copy to the company archive/Excel process.
 
+The Baseline JSON contains an `ExcelInventory` projection aligned with the master hardware-inventory workbook. Automatically detected/QC fields are populated there; manual assembly-checklist actions remain separate and are not falsely marked complete by the software.
+
 A failed/error run may additionally leave:
 
 ```text
@@ -117,19 +138,21 @@ C:\BaselineQC\Output\<AssetId>-LastFailure.zip
 
 This is only for troubleshooting. A later successful run removes the stale failure bundle.
 
-## 9. Temporary runtime data
+## 10. Temporary runtime data
 
-During a QC run the application creates transient benchmark/log/manifest material under a temporary working root similar to:
+During a production QC run, transient benchmark/log/manifest material is written under the Asset-specific working root, for example:
 
 ```text
-%TEMP%\SitecQC-Run-<guid>\
+Asset ID: CASE-001
+C:\SitecQC-Data-001\
+└── Assets\CASE-001\Runs\CASE-001-<timestamp>\...
 ```
 
-The launcher payload is also extracted under `%TEMP%`.
+The launcher payload itself is still extracted under `%TEMP%\SitecQC-App-*`.
 
-After completion these transient folders are deleted. They are not part of the delivered evidence set.
+After finalization, the Asset-specific scratch root and launcher payload are deleted. They are not part of the delivered evidence set. The durable evidence is only the PDF/Baseline JSON plus `LastFailure.zip` when a failed run needs troubleshooting.
 
-## 10. Customer handover
+## 11. Customer handover
 
 The intended handover procedure is:
 
@@ -144,7 +167,7 @@ The intended handover procedure is:
 
 This means reformatting the customer's Windows installation later does not destroy the company-held baseline.
 
-## 11. Hardware Identity v2
+## 12. Hardware Identity v2
 
 `SITEC-HWID-V2` is intentionally OS-independent. It uses only:
 
@@ -155,7 +178,7 @@ This means reformatting the customer's Windows installation later does not destr
 - sorted RAM serials;
 - sorted internal BOM-matching storage serials.
 
-It intentionally excludes Asset ID, tamper seal, Windows, BIOS version, drivers, benchmark values, temperatures, timestamps, free disk space, network state and USB devices.
+It intentionally excludes Asset ID, tamper seal, Windows, BIOS version, drivers, benchmark values, temperatures, timestamps, free disk space, network state, USB devices and the `SitecQC-Data-*` scratch path.
 
 Expected behavior:
 
@@ -166,7 +189,7 @@ Expected behavior:
 
 See `docs/HWID-v2.md`.
 
-## 12. PDF report
+## 13. PDF report
 
 The final customer certificate is strictly two A4 pages:
 
@@ -175,7 +198,7 @@ The final customer certificate is strictly two A4 pages:
 
 Optional fields with no data are omitted instead of creating visually empty rows. Required missing identity fields cause validation failure.
 
-## 13. Evidence integrity
+## 14. Evidence integrity
 
 Two hashes serve different purposes:
 
@@ -186,7 +209,7 @@ The runtime also supports RSA/SHA-256 evidence signing. Long-term authoritative 
 
 See `docs/EVIDENCE-INTEGRITY.md`.
 
-## 14. Baseline comparison and duplicate detection
+## 15. Baseline comparison and duplicate detection
 
 The delivered PC does not hold a fleet-wide database. Long-term controls are performed from the company-held copies of the PDF/Baseline JSON and master Excel/archive:
 
@@ -198,6 +221,6 @@ The delivered PC does not hold a fleet-wide database. Long-term controls are per
 
 This separation is deliberate: customer-side Windows can be reformatted or replaced without becoming the authoritative evidence store.
 
-## 15. PassMark coexistence
+## 16. PassMark coexistence
 
 PassMark BurnInTest may remain supporting evidence during development/validation, but SitecQC is the production operator workflow and report generator. Additional benchmark engines must remain internal adapters and must not require a separate operator procedure.

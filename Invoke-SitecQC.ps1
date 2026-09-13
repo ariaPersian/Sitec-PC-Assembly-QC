@@ -18,6 +18,10 @@ $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
 $context=Get-SitecContext -DataRoot $DataRoot
+if ([string]::IsNullOrWhiteSpace($DataRoot)) {
+    $DataRoot=Get-SitecAssetDataRoot -AssetId $AssetId -BaseDataRoot ([string]$context.Settings.DataRoot)
+    $context=Get-SitecContext -DataRoot $DataRoot
+}
 $profile=Get-SitecProfile -Context $context -ProfileId $ProfileId
 if ([string]::IsNullOrWhiteSpace($CaseModel)) { $CaseModel=[string]$profile.Expected.CaseModel }
 if ([string]::IsNullOrWhiteSpace($PsuModel)) { $PsuModel=[string]$profile.Expected.PsuModel }
