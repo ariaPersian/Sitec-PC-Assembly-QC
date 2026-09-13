@@ -11,9 +11,9 @@
     <AssemblyName>SitecQC</AssemblyName>
     <RootNamespace>SitecQC.Launcher</RootNamespace>
     <ApplicationIcon>..\ui\AppIcon.ico</ApplicationIcon>
-    <Version>3.8.0</Version>
-    <FileVersion>3.8.0.0</FileVersion>
-    <AssemblyVersion>3.8.0.0</AssemblyVersion>
+    <Version>3.9.1</Version>
+    <FileVersion>3.9.1.0</FileVersion>
+    <AssemblyVersion>3.9.1.0</AssemblyVersion>
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="payload.zip" Condition="Exists('payload.zip')" LogicalName="SitecQC.Payload.zip" />
