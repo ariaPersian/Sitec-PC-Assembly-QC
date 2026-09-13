@@ -49,6 +49,8 @@ For an Asset ID without a trailing numeric serial, SitecQC falls back to the com
 
 This folder is **transient working data**, not the authoritative customer output. Before a new run for the same Asset ID, stale residue in that Asset-specific scratch root is removed. After the run is finalized, runtime cleanup removes the scratch data. The durable output remains under `C:\BaselineQC\Output`.
 
+See [`docs/ASSET-DATA-ROOT.md`](docs/ASSET-DATA-ROOT.md) for the exact mapping and lifecycle rule.
+
 ## Operator inputs
 
 The normal operator-facing fields are:
@@ -178,7 +180,7 @@ Cross-PC duplicate-serial detection and long-term baseline comparison belong to 
 
 ## Source / development
 
-Normal operators use only `SitecQC.exe`. Repository scripts such as `Start-SitecQC.ps1`, `Invoke-SitecQC.ps1`, and dependency tooling are retained for development, CI and troubleshooting.
+Normal operators use only `SitecQC.exe`. Repository scripts such as `Start-SitecQC.ps1`, `Invoke-SitecQC.ps1`, and dependency tooling are retained for development, CI and troubleshooting. If `Invoke-SitecQC.ps1` is started directly without an explicit `-DataRoot`, it resolves the same Asset-scoped data-root rule used by the production GUI.
 
 GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests, Asset-ID data-root mapping, HWID behavior, reporting and the self-contained Windows x64 package before publishing the `SitecQC-Windows-x64` artifact.
 
@@ -186,6 +188,7 @@ GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests,
 
 - [`docs/BaselineQC-Workflow.md`](docs/BaselineQC-Workflow.md) — exact production/handover sequence
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — production operations and troubleshooting policy
+- [`docs/ASSET-DATA-ROOT.md`](docs/ASSET-DATA-ROOT.md) — Asset ID to `SitecQC-Data-*` mapping and cleanup lifecycle
 - [`docs/HWID-v2.md`](docs/HWID-v2.md) — OS-independent hardware identity definition
 - [`docs/EVIDENCE-INTEGRITY.md`](docs/EVIDENCE-INTEGRITY.md) — HWID, manifest hash and signature model
 - [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) — third-party components
