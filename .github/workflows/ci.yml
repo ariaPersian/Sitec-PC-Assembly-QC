@@ -134,6 +134,7 @@ jobs:
           $shaPath=Join-Path (Split-Path $exe -Parent) $shaName
           $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $assetName" | Set-Content -LiteralPath $shaPath -Encoding ASCII
+          $releaseBody="Production self-contained Windows x64 build for SitecQC $tag.`n`nSHA-256: $hash"
 
           $api="https://api.github.com/repos/$env:GH_REPOSITORY"
           $headers=@{
@@ -153,7 +154,7 @@ jobs:
               tag_name=$tag
               target_commitish=$env:GITHUB_SHA
               name="SitecQC $tag"
-              body="Production self-contained Windows x64 build for SitecQC $tag.`n`nSHA-256: $hash"
+              body=$releaseBody
               draft=$false
               prerelease=$false
               generate_release_notes=$false
@@ -161,19 +162,28 @@ jobs:
             $release=Invoke-RestMethod -UseBasicParsing -Method Post -Uri "$api/releases" -Headers $headers -ContentType 'application/json' -Body $body
           }
 
+          # Keep the rolling version tag/release aligned with the commit that produced
+          # the current binary. This is especially important when a previous release
+          # attempt created the tag but failed before uploading its assets.
+          $refBody=@{ sha=$env:GITHUB_SHA; force=$true } | ConvertTo-Json
+          Invoke-RestMethod -UseBasicParsing -Method Patch -Uri "$api/git/refs/tags/$tag" -Headers $headers -ContentType 'application/json' -Body $refBody | Out-Null
+
+          $releasePatch=@{ name="SitecQC $tag"; body=$releaseBody; draft=$false; prerelease=$false } | ConvertTo-Json
+          $release=Invoke-RestMethod -UseBasicParsing -Method Patch -Uri "$api/releases/$($release.id)" -Headers $headers -ContentType 'application/json' -Body $releasePatch
+
           foreach ($asset in @($release.assets) | Where-Object { $_.name -eq $assetName -or $_.name -eq $shaName }) {
             Invoke-RestMethod -UseBasicParsing -Method Delete -Uri "$api/releases/assets/$($asset.id)" -Headers $headers | Out-Null
           }
 
           $uploadBase=([string]$release.upload_url) -replace '\{\?name,label\}$',''
-          $exeUpload="$uploadBase?name=$([uri]::EscapeDataString($assetName))"
-          $shaUpload="$uploadBase?name=$([uri]::EscapeDataString($shaName))"
+          $exeUpload=('{0}?name={1}' -f $uploadBase,[uri]::EscapeDataString($assetName))
+          $shaUpload=('{0}?name={1}' -f $uploadBase,[uri]::EscapeDataString($shaName))
           Invoke-RestMethod -UseBasicParsing -Method Post -Uri $exeUpload -Headers $headers -ContentType 'application/octet-stream' -InFile $exe | Out-Null
           Invoke-RestMethod -UseBasicParsing -Method Post -Uri $shaUpload -Headers $headers -ContentType 'application/octet-stream' -InFile $shaPath | Out-Null
           Write-Host "Published release $tag with $assetName and SHA-256 $hash"
 
       - name: Remove old SitecQC Actions artifacts
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
         shell: powershell
         env:
@@ -197,7 +207,7 @@ jobs:
           Write-Host "Deleted $($targets.Count) old SitecQC Actions artifact(s)."
 
       - name: Upload short-lived Actions artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
