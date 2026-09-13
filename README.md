@@ -1,8 +1,8 @@
 # Sitec PC Assembly QC
 
-Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, and a two-page customer QC certificate**.
+Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.8.0 / BaselineQC-local**.
+Current production workflow: **v3.9.1 / BaselineQC-local / Asset-scoped QC data root**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -20,22 +20,40 @@ Run `SitecQC.exe` locally from the PC being tested. **Do not connect the company
 The application:
 
 1. requests Administrator elevation;
-2. extracts its embedded runtime temporarily under `%TEMP%`;
+2. extracts its embedded launcher/runtime payload temporarily under `%TEMP%`;
 3. detects the installed hardware;
-4. validates the expected BOM;
-5. runs performance qualification and full-system burn-in;
-6. captures WHEA and sensor evidence;
-7. calculates `SITEC-HWID-V2`;
-8. generates a two-page PDF and compact Baseline JSON;
-9. removes temporary benchmark/runtime files.
+4. confirms the Asset ID and derives an Asset-scoped scratch-data folder on `C:`;
+5. validates the expected BOM;
+6. runs performance qualification and full-system burn-in;
+7. captures WHEA and sensor evidence;
+8. calculates `SITEC-HWID-V2`;
+9. generates a two-page PDF and compact Baseline JSON with Excel-inventory mapping;
+10. removes transient benchmark/runtime data after publishing the final evidence.
 
 After SitecQC is closed, the company USB may be connected and the PDF/Baseline JSON copied manually to the protected company archive and master Excel workflow.
+
+## Asset-scoped SitecQC data root
+
+The production QC working folder is derived from the confirmed Asset ID instead of using one shared `C:\SitecQC-Data` directory.
+
+For Asset IDs ending in digits, the trailing numeric serial is preserved exactly:
+
+```text
+Asset ID     QC scratch root
+CASE-001  -> C:\SitecQC-Data-001
+CASE-027  -> C:\SitecQC-Data-027
+PC-200    -> C:\SitecQC-Data-200
+```
+
+For an Asset ID without a trailing numeric serial, SitecQC falls back to the complete safe Asset ID, for example `CASE-TEST -> C:\SitecQC-Data-CASE-TEST`.
+
+This folder is **transient working data**, not the authoritative customer output. Before a new run for the same Asset ID, stale residue in that Asset-specific scratch root is removed. After the run is finalized, runtime cleanup removes the scratch data. The durable output remains under `C:\BaselineQC\Output`.
 
 ## Operator inputs
 
 The normal operator-facing fields are:
 
-- **Asset ID** — organizational/physical case identifier. Tamper seal #1 follows Asset ID automatically unless the operator overrides it.
+- **Asset ID** — organizational/physical case identifier. It also determines the Asset-scoped `SitecQC-Data-*` working folder. Tamper seal #1 follows Asset ID automatically unless the operator overrides it.
 - **PSU Serial** — scanned from the installed PSU/controlled packaging.
 - **CPU 2D / ATPO** — Intel Full ATPO scanned from the processor 2D matrix or boxed-processor label.
 - **Tamper seal #1** — normally the same value as Asset ID; may be edited when the physical seal uses a different serial.
@@ -98,6 +116,8 @@ C:\BaselineQC\
 
 The PDF is the human-readable handover document. The JSON is the compact machine-readable record used later by the company-side archive/Excel process.
 
+The Baseline JSON includes an `ExcelInventory` projection whose field names align with the master hardware-inventory workbook. Assembly checklist fields that require a real operator action remain intentionally separate from automatically detected hardware/QC values.
+
 The PDF is exactly two A4 pages:
 
 - **Page 1:** assembled hardware identity/specifications;
@@ -134,7 +154,7 @@ See [`docs/HWID-v2.md`](docs/HWID-v2.md).
 
 ## Asset ID, seal, HWID and Manifest are different concepts
 
-- **Asset ID:** administrative identity of the physical PC/case.
+- **Asset ID:** administrative identity of the physical PC/case and source for the Asset-scoped scratch-folder name.
 - **Tamper seal #1:** physical seal identifier used at customer handover.
 - **Hardware Identity SHA-256:** identity fingerprint of the serialized core hardware.
 - **Manifest SHA-256:** integrity hash of the exact QC evidence for one run; it normally changes between runs because timestamps, temperatures and benchmark results change.
@@ -152,7 +172,7 @@ The intended handover sequence is:
 5. apply the registered tamper seal in front of the customer;
 6. close SitecQC;
 7. connect the company USB and manually copy the PDF + Baseline JSON;
-8. transfer the machine-readable values into the protected master Excel/archive.
+8. transfer/import the machine-readable values into the protected master Excel/archive.
 
 Cross-PC duplicate-serial detection and long-term baseline comparison belong to that company-side archive, not to a persistent database on the delivered PC.
 
@@ -160,7 +180,7 @@ Cross-PC duplicate-serial detection and long-term baseline comparison belong to 
 
 Normal operators use only `SitecQC.exe`. Repository scripts such as `Start-SitecQC.ps1`, `Invoke-SitecQC.ps1`, and dependency tooling are retained for development, CI and troubleshooting.
 
-GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests, HWID behavior, reporting and the self-contained Windows x64 package before publishing the `SitecQC-Windows-x64` artifact.
+GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests, Asset-ID data-root mapping, HWID behavior, reporting and the self-contained Windows x64 package before publishing the `SitecQC-Windows-x64` artifact.
 
 ## Documentation
 
