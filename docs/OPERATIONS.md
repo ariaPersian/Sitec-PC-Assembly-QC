@@ -4,7 +4,7 @@ This document describes the production procedure for **SitecQC v3.9.1 / Baseline
 
 ## 1. Production package and location
 
-Use the GitHub Actions artifact `SitecQC-Windows-x64`. The operator-facing package contains the self-contained `SitecQC.exe` application.
+Use the versioned GitHub Release executable as the authoritative operator package, for example `SitecQC-Windows-x64-v3.9.1.exe`. Each Release also contains a matching `.sha256` file so the downloaded executable can be verified independently. The ordinary GitHub Actions artifact named `SitecQC-Windows-x64` is only a short-lived secondary copy retained for 3 days.
 
 On every assembled PC create:
 
@@ -12,6 +12,8 @@ On every assembled PC create:
 C:\BaselineQC\
 └── SitecQC.exe
 ```
+
+Rename/copy the downloaded versioned executable to `C:\BaselineQC\SitecQC.exe` for the production station workflow.
 
 Run the executable from the local system drive. It requests Administrator elevation and extracts its embedded launcher payload only to a disposable `%TEMP%\SitecQC-App-*` location. No persistent application payload, fleet database or baseline database is required under ProgramData.
 

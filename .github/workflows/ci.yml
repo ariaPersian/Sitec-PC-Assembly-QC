@@ -3,6 +3,10 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: write
+  actions: write
+
 jobs:
   validate-and-package:
     runs-on: windows-latest
@@ -106,10 +110,99 @@ jobs:
         run: |
           dotnet publish .\launcher\SitecQC.Launcher.csproj -c Release -r win-x64 --self-contained true -o .\dist
           if (-not (Test-Path .\dist\SitecQC.exe)) { throw 'SitecQC.exe was not produced.' }
+          [xml]$project=Get-Content .\launcher\SitecQC.Launcher.csproj -Raw -Encoding UTF8
+          $expected=[string]$project.Project.PropertyGroup.Version
+          $actual=(Get-Item .\dist\SitecQC.exe).VersionInfo.ProductVersion
+          if ($actual -notlike "$expected*") { throw "Built SitecQC.exe version mismatch. Expected $expected, actual $actual" }
+          Write-Host "Built SitecQC.exe version $actual"
 
-      - name: Upload operator executable
+      - name: Publish versioned GitHub Release executable
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference='Stop'
+          [xml]$project=Get-Content .\launcher\SitecQC.Launcher.csproj -Raw -Encoding UTF8
+          $version=[string]$project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'Launcher version is empty.' }
+          $tag="v$version"
+          $assetName="SitecQC-Windows-x64-$tag.exe"
+          $shaName="$assetName.sha256"
+          $exe=(Resolve-Path .\dist\SitecQC.exe).Path
+          $shaPath=Join-Path (Split-Path $exe -Parent) $shaName
+          $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $assetName" | Set-Content -LiteralPath $shaPath -Encoding ASCII
+
+          $api="https://api.github.com/repos/$env:GH_REPOSITORY"
+          $headers=@{
+            Authorization="Bearer $env:GH_TOKEN"
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+            'User-Agent'='SitecQC-CI'
+          }
+
+          try {
+            $release=Invoke-RestMethod -UseBasicParsing -Method Get -Uri "$api/releases/tags/$tag" -Headers $headers
+          } catch {
+            $status=$null
+            try { $status=[int]$_.Exception.Response.StatusCode } catch {}
+            if ($status -ne 404) { throw }
+            $body=@{
+              tag_name=$tag
+              target_commitish=$env:GITHUB_SHA
+              name="SitecQC $tag"
+              body="Production self-contained Windows x64 build for SitecQC $tag.`n`nSHA-256: $hash"
+              draft=$false
+              prerelease=$false
+              generate_release_notes=$false
+            } | ConvertTo-Json -Depth 5
+            $release=Invoke-RestMethod -UseBasicParsing -Method Post -Uri "$api/releases" -Headers $headers -ContentType 'application/json' -Body $body
+          }
+
+          foreach ($asset in @($release.assets) | Where-Object { $_.name -eq $assetName -or $_.name -eq $shaName }) {
+            Invoke-RestMethod -UseBasicParsing -Method Delete -Uri "$api/releases/assets/$($asset.id)" -Headers $headers | Out-Null
+          }
+
+          $uploadBase=([string]$release.upload_url) -replace '\{\?name,label\}$',''
+          $exeUpload="$uploadBase?name=$([uri]::EscapeDataString($assetName))"
+          $shaUpload="$uploadBase?name=$([uri]::EscapeDataString($shaName))"
+          Invoke-RestMethod -UseBasicParsing -Method Post -Uri $exeUpload -Headers $headers -ContentType 'application/octet-stream' -InFile $exe | Out-Null
+          Invoke-RestMethod -UseBasicParsing -Method Post -Uri $shaUpload -Headers $headers -ContentType 'application/octet-stream' -InFile $shaPath | Out-Null
+          Write-Host "Published release $tag with $assetName and SHA-256 $hash"
+
+      - name: Remove old SitecQC Actions artifacts
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $api="https://api.github.com/repos/$env:GH_REPOSITORY"
+          $headers=@{
+            Authorization="Bearer $env:GH_TOKEN"
+            Accept='application/vnd.github+json'
+            'X-GitHub-Api-Version'='2022-11-28'
+            'User-Agent'='SitecQC-CI'
+          }
+          $response=Invoke-RestMethod -UseBasicParsing -Method Get -Uri "$api/actions/artifacts?per_page=100" -Headers $headers
+          $targets=@($response.artifacts | Where-Object { [string]$_.name -like 'SitecQC-Windows-x64*' })
+          foreach ($artifact in $targets) {
+            Write-Host "Deleting old Actions artifact: $($artifact.name) [$($artifact.id)]"
+            Invoke-RestMethod -UseBasicParsing -Method Delete -Uri "$api/actions/artifacts/$($artifact.id)" -Headers $headers | Out-Null
+          }
+          Write-Host "Deleted $($targets.Count) old SitecQC Actions artifact(s)."
+
+      - name: Upload short-lived Actions artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: SitecQC-Windows-x64
           path: dist/SitecQC.exe
           if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
