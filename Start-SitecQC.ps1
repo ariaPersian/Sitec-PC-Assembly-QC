@@ -153,7 +153,7 @@ $BtnRun.Add_Click({
         if (Get-SitecCaptureFlag 'RequireSeal1' $true) { $required += [pscustomobject]@{Name='Tamper seal #1';Value=$TxtSeal1.Text} }
         foreach ($item in $required) { if ([string]::IsNullOrWhiteSpace([string]$item.Value)) { throw "$($item.Name) must be scanned or confirmed before final QC." } }
 
-        $script:WorkRoot=New-SitecWorkingRoot
+        $script:WorkRoot=New-SitecWorkingRoot -AssetId $asset -BaseDataRoot ([string]$context.Settings.DataRoot)
         $worker=Join-Path $root 'Invoke-SitecQC-Compact.ps1'
         $argList=@(
             '-NoProfile','-ExecutionPolicy','Bypass','-File',(Q $worker),
@@ -165,7 +165,7 @@ $BtnRun.Add_Click({
         $script:StartedAt=Get-Date;$script:CurrentStatus=$null;$script:LastReport=$null
         $script:Worker=Start-Process powershell.exe -ArgumentList ($argList -join ' ') -PassThru -WindowStyle Hidden
         $BtnRun.IsEnabled=$false;$BtnDetect.IsEnabled=$false;$BtnOpenLast.IsEnabled=$false
-        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtStage.Text='Starting';$TxtMessage.Text='QC worker launched. Output will be saved locally under BaselineQC\Output.'
+        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched. Scratch data: {0} | Final output: {1}\Output" -f $script:WorkRoot,$BaselineRoot)
     } catch { [Windows.MessageBox]::Show($_.Exception.Message,'Cannot start QC') | Out-Null }
 })
 
