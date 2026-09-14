@@ -1,8 +1,8 @@
 # Sitec PC Assembly QC
 
-Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, and a two-page customer QC certificate**.
+Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.9.1 / BaselineQC-local / Asset-scoped QC data root**.
+Current production workflow: **v3.10.0 / BaselineQC-local / Asset-scoped QC data root**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -27,10 +27,10 @@ The application:
 6. runs performance qualification and full-system burn-in;
 7. captures WHEA and sensor evidence;
 8. calculates `SITEC-HWID-V2`;
-9. generates a two-page PDF and compact Baseline JSON with Excel-inventory mapping;
+9. generates a two-page PDF, compact Baseline JSON, and complete Full JSON;
 10. removes transient benchmark/runtime data after publishing the final evidence.
 
-After SitecQC is closed, the company USB may be connected and the PDF/Baseline JSON copied manually to the protected company archive and master Excel workflow.
+After SitecQC is closed, the company USB may be connected and the PDF/Baseline/Full JSON files copied manually to the protected company archive and master Excel workflow.
 
 ## Asset-scoped SitecQC data root
 
@@ -77,7 +77,7 @@ When exposed by Windows/SMBIOS, SitecQC collects:
 
 - motherboard manufacturer/model/serial;
 - CPU model, core/thread count and processor information;
-- each RAM module: slot, manufacturer, part number, serial, capacity, type and configured speed;
+- each RAM module: slot, detected manufacturer, part number, serial, capacity, type and configured speed;
 - internal SSD/NVMe model, vendor serial, firmware, capacity, bus type and supported reliability counters;
 - BIOS/SMBIOS information;
 - GPU and network inventory;
@@ -85,6 +85,8 @@ When exposed by Windows/SMBIOS, SitecQC collects:
 - Windows information for the report only;
 - PnP/device-error state;
 - temperatures/loads and other supported sensor data during QC.
+
+The raw detected RAM values remain preserved in the machine-readable JSON evidence and continue to participate in validation/HWID where applicable. The customer-facing UI/PDF uses the approved presentation policy described below and does not rewrite the underlying hardware evidence.
 
 Optional values with no real data are omitted from the customer report instead of being rendered as empty rows.
 
@@ -113,10 +115,11 @@ C:\BaselineQC\
 ├── SitecQC.exe
 └── Output\
     ├── <AssetId>-QC-Certificate.pdf
-    └── <AssetId>-Baseline.json
+    ├── <AssetId>-Baseline.json
+    └── <AssetId>-Full.json
 ```
 
-The PDF is the human-readable handover document. The JSON is the compact machine-readable record used later by the company-side archive/Excel process.
+The PDF is the human-readable handover document. `Baseline.json` is the compact machine-readable record aligned with the fleet/Excel workflow. `Full.json` preserves the complete QC run record, including raw detected hardware, physical identifiers, BOM validation, benchmark/burn-in results, WHEA data, validation results, duplicate-serial results, PassMark metadata when present, hardware/manifest hashes, and signature-verification metadata when available.
 
 The Baseline JSON includes an `ExcelInventory` projection whose field names align with the master hardware-inventory workbook. Assembly checklist fields that require a real operator action remain intentionally separate from automatically detected hardware/QC values.
 
@@ -124,6 +127,14 @@ The PDF is exactly two A4 pages:
 
 - **Page 1:** assembled hardware identity/specifications;
 - **Page 2:** benchmark/burn-in result, validation status, Hardware Identity SHA-256 and Manifest SHA-256.
+
+### RAM presentation policy
+
+For the customer-facing UI and PDF only:
+
+- RAM manufacturer is displayed as **Crucial** regardless of the SMBIOS-reported manufacturer/model string;
+- the PDF RAM table does **not** display Part Number, Serial, or Speed columns;
+- the raw detected manufacturer, part number, serial and speed remain unchanged in `Baseline.json`/`Full.json` and in internal validation evidence.
 
 ## Hardware Identity v2
 
@@ -173,7 +184,7 @@ The intended handover sequence is:
 4. print/review the certificate;
 5. apply the registered tamper seal in front of the customer;
 6. close SitecQC;
-7. connect the company USB and manually copy the PDF + Baseline JSON;
+7. connect the company USB and manually copy the PDF + Baseline JSON + Full JSON;
 8. transfer/import the machine-readable values into the protected master Excel/archive.
 
 Cross-PC duplicate-serial detection and long-term baseline comparison belong to that company-side archive, not to a persistent database on the delivered PC.
@@ -182,7 +193,7 @@ Cross-PC duplicate-serial detection and long-term baseline comparison belong to 
 
 Normal operators use only `SitecQC.exe`. Repository scripts such as `Start-SitecQC.ps1`, `Invoke-SitecQC.ps1`, and dependency tooling are retained for development, CI and troubleshooting. If `Invoke-SitecQC.ps1` is started directly without an explicit `-DataRoot`, it resolves the same Asset-scoped data-root rule used by the production GUI.
 
-GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests, Asset-ID data-root mapping, HWID behavior, reporting and the self-contained Windows x64 package. A successful push to `main` publishes the authoritative versioned executable and its SHA-256 file under the matching GitHub Release, for example `SitecQC-Windows-x64-v3.9.1.exe`. The ordinary Actions artifact is only a short-lived secondary copy with a 3-day retention period; older SitecQC Actions artifacts are cleaned before new main-branch uploads, and an Actions-artifact quota problem does not block publishing the versioned Release build.
+GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests, Asset-ID data-root mapping, HWID behavior, reporting and the self-contained Windows x64 package. A successful push to `main` publishes the authoritative versioned executable and its SHA-256 file under the matching GitHub Release, for example `SitecQC-Windows-x64-v3.10.0.exe`. The ordinary Actions artifact is only a short-lived secondary copy with a 3-day retention period; older SitecQC Actions artifacts are cleaned before new main-branch uploads, and an Actions-artifact quota problem does not block publishing the versioned Release build.
 
 ## Documentation
 
