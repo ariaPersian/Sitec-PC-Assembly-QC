@@ -15,30 +15,50 @@ try {
     if ($published -ne (Join-Path $layout.OutputRoot 'CASE-TEST-QC-Certificate.pdf')) { throw 'Published PDF path is not stable.' }
 
     $manifestObject=[pscustomobject]@{
-        AssetId='CASE-TEST';CompletedAt='2026-01-01T12:00:00Z';OverallStatus='PASS'
+        SchemaVersion='1.2';AssetId='CASE-TEST';RunId='CASE-TEST-20260101-120000';Operator='Test';StartedAt='2026-01-01T11:55:00Z';CompletedAt='2026-01-01T12:00:00Z';OverallStatus='PASS'
         Physical=[pscustomobject]@{Seal1='CASE-TEST';CaseModel='GREEN AVA+';CpuAtpo='M6M71N2102883';Cooler='DeepCool AG400 PLUS';PsuModel='GREEN GP700A-GED V3.1';PsuSerial='PSU001'}
         Hardware=[pscustomobject]@{
             Motherboard=[pscustomobject]@{Manufacturer='ASUS';Model='TUF GAMING B760-PLUS WIFI';SerialNumber='MB001'}
             CPU=[pscustomobject]@{Model='Intel Core i7-14700K';Cores=20;LogicalProcessors=28}
             MemoryTotalGB=16
-            Memory=@([pscustomobject]@{Slot='A2';Manufacturer='Kingston';PartNumber='RAM-PART';SerialNumber='RAM001';CapacityGB=16;ConfiguredSpeedMHz=4800})
+            Memory=@([pscustomobject]@{Slot='A2';Manufacturer='Kingston';PartNumber='RAM-PART';SerialNumber='RAM001';CapacityGB=16;Type='DDR5';RatedSpeedMHz=5600;ConfiguredSpeedMHz=4800;ConfiguredVoltage_mV=1100})
             Storage=@([pscustomobject]@{Model='Samsung SSD 990 PRO 1TB';FriendlyName='Samsung SSD 990 PRO 1TB';SerialNumber='SSD001';FirmwareVersion='FW1';SizeGB=1000;BusType='NVMe'})
             BIOS=[pscustomobject]@{Version='1836';ReleaseDate='2026-01-01'}
             Graphics=@([pscustomobject]@{Name='Intel UHD Graphics'})
             SystemUUID='UUID001'
         }
         Profile=[pscustomobject]@{ProfileId='B760-14700K-990PRO';ProfileVersion='3';Expected=[pscustomobject]@{StorageModelContains='990 PRO'}}
-        Security=[pscustomobject]@{HardwareIdentitySchema='SITEC-HWID-V2';HardwareIdentitySha256='HWID';Sha256='MANIFEST'}
+        BomValidation=[pscustomobject]@{Status='PASS';Checks=@()}
+        Benchmark=[pscustomobject]@{WinSAT=[pscustomobject]@{Status='PASS';Available=$true};WHEA=[pscustomobject]@{Count=0;Events=@()}}
+        BenchmarkValidation=[pscustomobject]@{Status='PASS';Checks=@()}
+        DuplicateSerials=@()
+        PassMarkEvidence=@()
+        Diagnostics=[pscustomobject]@{Events='temporary-events.jsonl'}
+        Security=$null
     }
     $manifest=Join-Path $temp 'hardware-qc-manifest.json'
     $manifestObject | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $manifest -Encoding UTF8
-    $baseline=Publish-SitecBaselineJson -BaselineRoot $baselineRoot -AssetId 'CASE-TEST' -ManifestPath $manifest -CertificatePath $published
+
+    $baselineManifestObject=($manifestObject | ConvertTo-Json -Depth 20 | ConvertFrom-Json)
+    $baselineManifestObject.Security=[pscustomobject]@{HardwareIdentitySchema='SITEC-HWID-V2';HardwareIdentitySha256='HWID';Sha256='MANIFEST'}
+    $baselineManifest=Join-Path $temp 'baseline-source.json'
+    $baselineManifestObject | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $baselineManifest -Encoding UTF8
+    $baseline=Publish-SitecBaselineJson -BaselineRoot $baselineRoot -AssetId 'CASE-TEST' -ManifestPath $baselineManifest -CertificatePath $published
     if (-not (Test-Path -LiteralPath $baseline)) { throw 'Compact Baseline JSON was not published.' }
     $b=Get-Content -LiteralPath $baseline -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($b.AssetId -ne 'CASE-TEST' -or $b.CPU.Atpo -ne 'M6M71N2102883' -or $b.HardwareIdentity.Sha256 -ne 'HWID') { throw 'Baseline JSON contents are incomplete.' }
 
+    $resultPath=Join-Path $temp 'result.json'
+    [pscustomobject]@{HardwareIdentitySha256='HWID';ManifestSha256='MANIFEST'} | ConvertTo-Json | Set-Content -LiteralPath $resultPath -Encoding UTF8
+    $full=Publish-SitecFullJson -BaselineRoot $baselineRoot -AssetId 'CASE-TEST' -ManifestPath $manifest -ResultPath $resultPath -CertificatePath $published -BaselinePath $baseline
+    if (-not (Test-Path -LiteralPath $full)) { throw 'Complete Full JSON was not published.' }
+    $f=Get-Content -LiteralPath $full -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($f.FullExportSchema -ne 'SITEC-QC-FULL-V1') { throw 'Full JSON schema marker is missing.' }
+    if ($f.Hardware.Memory[0].Manufacturer -ne 'Kingston' -or $f.Hardware.Memory[0].PartNumber -ne 'RAM-PART' -or $f.Hardware.Memory[0].SerialNumber -ne 'RAM001' -or $f.Hardware.Memory[0].ConfiguredSpeedMHz -ne 4800) { throw 'Full JSON must preserve raw RAM details.' }
+    if ($f.Security.HardwareIdentitySha256 -ne 'HWID' -or $f.Security.ManifestSha256 -ne 'MANIFEST') { throw 'Full JSON security hashes are missing.' }
+
     $visible=@(Get-ChildItem -LiteralPath $layout.OutputRoot -File | Sort-Object Name)
-    if ($visible.Count -ne 2) { throw "PASS output should contain exactly PDF + Baseline JSON; found $($visible.Count)." }
+    if ($visible.Count -ne 3) { throw "PASS output should contain exactly PDF + Baseline JSON + Full JSON; found $($visible.Count)." }
 
     $work=New-SitecWorkingRoot
     'temp' | Set-Content -LiteralPath (Join-Path $work 'x.tmp')
@@ -57,7 +77,7 @@ try {
     if ($launcher -notmatch 'Path.GetTempPath') { throw 'Launcher does not use a temporary payload folder.' }
     if ($launcher -notmatch 'WaitForExit') { throw 'Launcher cannot clean its temporary payload after the UI exits.' }
 
-    Write-Host 'BaselineQC local PDF + Baseline JSON output tests passed.' -ForegroundColor Green
+    Write-Host 'BaselineQC local PDF + compact/full JSON output tests passed.' -ForegroundColor Green
 } finally {
     Remove-Item -LiteralPath $temp -Recurse -Force -ErrorAction SilentlyContinue
 }
