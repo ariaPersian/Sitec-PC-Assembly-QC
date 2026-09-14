@@ -65,11 +65,13 @@ try {
         }
 
         $publishedPdf=$null
+        $publishedBaseline=$null
         if (Test-Path -LiteralPath $sourcePdf) {
             $publishedPdf=Publish-SitecCertificate -BaselineRoot $BaselineRoot -AssetId $AssetId -SourcePdf $sourcePdf
         }
         if (Test-Path -LiteralPath $manifestPath) {
-            [void](Publish-SitecBaselineJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -CertificatePath $publishedPdf)
+            $publishedBaseline=Publish-SitecBaselineJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -CertificatePath $publishedPdf
+            [void](Publish-SitecFullJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -ResultPath $resultPath -CertificatePath $publishedPdf -BaselinePath $publishedBaseline)
         }
         if ($exitCode -ne 0) {
             [void](Save-SitecSupportBundle -BaselineRoot $BaselineRoot -AssetId $AssetId -RunPath $runDir.FullName)
@@ -79,10 +81,10 @@ try {
         }
     }
 } finally {
-    # Benchmark XML, transient HTML, verbose logs, signatures and the full
-    # manifest exist only while the run is active. Durable local output is
-    # intentionally limited to PDF + compact Baseline JSON (plus LastFailure
-    # only when troubleshooting a failed run).
+    # Benchmark XML, transient HTML, verbose logs, signatures and the signed
+    # source manifest exist only while the run is active. Durable local output
+    # is intentionally limited to the two-page PDF, compact Baseline JSON and
+    # complete Full JSON (plus LastFailure only for failed-run troubleshooting).
     Remove-SitecLocalQcResidue -WorkingRoot $WorkingRoot
 }
 
