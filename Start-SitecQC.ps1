@@ -108,7 +108,7 @@ function Refresh-SitecHardware {
         $lines += "CPU        : $($h.CPU.Model) [$($h.CPU.Cores)C/$($h.CPU.LogicalProcessors)T]"
         $lines += "BIOS       : $($h.BIOS.Version) ($($h.BIOS.ReleaseDate))"
         $lines += "RAM        : $($h.MemoryTotalGB) GB"
-        foreach ($memory in @($h.Memory)) { $lines += "  RAM      : $($memory.Slot) | $($memory.Manufacturer) $($memory.PartNumber) | S/N $($memory.SerialNumber) | $($memory.ConfiguredSpeedMHz) MHz" }
+        foreach ($memory in @($h.Memory)) { $lines += "  RAM      : $($memory.Slot) | Crucial | S/N $($memory.SerialNumber) | $($memory.ConfiguredSpeedMHz) MHz" }
         foreach ($disk in @($h.Storage)) {
             $text="  STORAGE  : $($disk.Model) | S/N $($disk.SerialNumber) | $($disk.SizeGB) GB | $($disk.BusType)"
             if ($disk.Reliability -and $disk.Reliability.Available) {
@@ -186,8 +186,8 @@ $timer.Add_Tick({
         $published=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $asset
         if (Test-Path -LiteralPath $published) { $script:LastReport=$published }
         $BtnOpenLast.IsEnabled=[bool]$script:LastReport
-        if ($script:Worker.ExitCode -eq 0) { $TxtHeaderStatus.Text='PASS';$TxtHeaderStatus.Foreground='#A8E6BE';$TxtMessage.Text="QC complete. PDF + Baseline JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB." }
-        elseif ($script:Worker.ExitCode -eq 2) { $TxtHeaderStatus.Text='FAIL';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtMessage.Text="QC failed. PDF/Baseline and LastFailure diagnostics were saved to $BaselineRoot\Output." }
+        if ($script:Worker.ExitCode -eq 0) { $TxtHeaderStatus.Text='PASS';$TxtHeaderStatus.Foreground='#A8E6BE';$TxtMessage.Text="QC complete. PDF + Baseline JSON + Full JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB." }
+        elseif ($script:Worker.ExitCode -eq 2) { $TxtHeaderStatus.Text='FAIL';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtMessage.Text="QC failed. PDF/Baseline/Full JSON and LastFailure diagnostics were saved to $BaselineRoot\Output." }
         else { $TxtHeaderStatus.Text='ERROR';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtMessage.Text="QC error. Check $BaselineRoot\Output for LastFailure diagnostics." }
         $script:Worker=$null;$script:WorkRoot=$null
     }
