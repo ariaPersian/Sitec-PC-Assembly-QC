@@ -41,13 +41,24 @@ try {
     if (-not ($result.Checks | Where-Object Name -eq 'WinSAT CPU execution')) { throw 'CPU-only validation omitted the CPU qualification check.' }
 
     $benchmark.Selection=@('Memory')
-    $benchmark.BurnIn.MemoryVerification=[pscustomobject]@{Enabled=$true;Status='PASS';Errors=0}
-    $benchmark.BurnIn.Utilization.Memory=[pscustomobject]@{Average=75;Peak=80}
+    $benchmark.BurnIn.MemoryVerification=[pscustomobject]@{
+        Enabled=$true;Status='PASS';Errors=0
+        CoverageMode='MaximumSafe';AllocationCoveragePercent=100
+        ExpectedSystemUsagePercent=95;SafeCoverageTargetMB=50000
+    }
+    $benchmark.BurnIn.Utilization.Memory=[pscustomobject]@{Average=93;Peak=94}
     $benchmark.WinSAT=[pscustomobject]@{Available=$true;Status='PASS';CpuStatus='SKIPPED';MemoryStatus='PASS';CpuCompressionMBps=$null;MemoryMBps=20000}
     $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
-    if ($result.Status -ne 'PASS') { throw 'Memory-only benchmark validation did not pass.' }
+    if ($result.Status -ne 'PASS') { throw 'Memory-only MaximumSafe benchmark validation did not pass.' }
     if (-not ($result.Checks | Where-Object Name -eq 'Memory verification errors')) { throw 'Memory-only validation omitted RAM verification.' }
+    if (-not ($result.Checks | Where-Object Name -eq 'RAM safe allocation coverage')) { throw 'Memory-only validation omitted safe-allocation coverage.' }
+    $peakCheck=$result.Checks | Where-Object Name -eq 'Peak RAM use during burn-in' | Select-Object -First 1
+    if (-not $peakCheck -or $peakCheck.Expected -notmatch '90%') { throw 'Memory peak validation did not use the dynamic 95%-planned / 5-point tolerance gate.' }
     if ($result.Checks | Where-Object Name -eq 'WinSAT CPU execution') { throw 'Memory-only validation incorrectly included CPU qualification.' }
+
+    $benchmark.BurnIn.MemoryVerification.AllocationCoveragePercent=80
+    $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
+    if ($result.Status -ne 'FAIL') { throw 'Insufficient MaximumSafe allocation coverage did not fail QC.' }
 } finally {
     $env:SITECQC_BENCHMARK_COMPONENTS=$previous
 }
