@@ -201,9 +201,34 @@ $timer.Add_Tick({
         $published=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $asset
         if (Test-Path -LiteralPath $published) { $script:LastReport=$published }
         $BtnOpenLast.IsEnabled=[bool]$script:LastReport
-        if ($script:Worker.ExitCode -eq 0) { $TxtHeaderStatus.Text='PASS';$TxtHeaderStatus.Foreground='#A8E6BE';$TxtMessage.Text="QC complete. PDF + Baseline JSON + Full JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB." }
-        elseif ($script:Worker.ExitCode -eq 2) { $TxtHeaderStatus.Text='FAIL';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtMessage.Text="QC failed. PDF/Baseline/Full JSON and LastFailure diagnostics were saved to $BaselineRoot\Output." }
-        else { $TxtHeaderStatus.Text='ERROR';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtMessage.Text="QC error. Check $BaselineRoot\Output for LastFailure diagnostics." }
+        $ProgressQc.Value=100
+        if ($script:Worker.ExitCode -eq 0) {
+            $TxtHeaderStatus.Text='PASS';$TxtHeaderStatus.Foreground='#A8E6BE';$TxtStage.Text='Complete'
+            $TxtMessage.Text="QC complete: PASS. PDF + Baseline JSON + Full JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB."
+        }
+        elseif ($script:Worker.ExitCode -eq 2) {
+            $TxtHeaderStatus.Text='FAIL';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtStage.Text='Complete - QC FAIL'
+            $reason=''
+            $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $asset
+            if (Test-Path -LiteralPath $fullJson) {
+                try {
+                    $full=Get-Content -LiteralPath $fullJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($full.PSObject.Properties['ErrorSummary'] -and $full.ErrorSummary) { $reason=[string]$full.ErrorSummary.PrimaryMessage }
+                } catch {}
+            }
+            if ([string]::IsNullOrWhiteSpace($reason)) { $reason='One or more QC validation gates failed.' }
+            $TxtMessage.Text=("QC completed: FAIL. {0} PDF + Baseline JSON + Full JSON were saved to {1}\Output. This is a QC result, not an application error." -f $reason,$BaselineRoot)
+        }
+        else {
+            $TxtHeaderStatus.Text='ERROR';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtStage.Text='Runtime error'
+            $failureMessage=''
+            $failureJson=Join-Path (Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot) ($asset+'-LastFailure.json')
+            if (Test-Path -LiteralPath $failureJson) {
+                try { $failureMessage=[string](Get-Content -LiteralPath $failureJson -Raw -Encoding UTF8 | ConvertFrom-Json).message } catch {}
+            }
+            if ([string]::IsNullOrWhiteSpace($failureMessage)) { $failureMessage='The QC application or publishing pipeline encountered a runtime error.' }
+            $TxtMessage.Text=("QC runtime ERROR. {0} Check LastFailure diagnostics in {1}\Output." -f $failureMessage,$BaselineRoot)
+        }
         $script:Worker=$null;$script:WorkRoot=$null
     }
 })
