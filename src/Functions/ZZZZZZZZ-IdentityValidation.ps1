@@ -34,7 +34,11 @@ function Test-SitecExpectedBom {
         } elseif (-not $valid) {
             $r.Checks=@($r.Checks)+(New-SitecCheck -Name 'CPU ATPO' -Expected 'Valid full ATPO / Intel processor S/N' -Actual ([string]$Physical.CpuAtpo) -Passed $false)
         }
-        if (-not $valid) { $r.Status='FAIL' }
+        if (-not $valid) {
+            $r.Status='FAIL'
+            if($r.PSObject.Properties['BlockingStatus']){$r.BlockingStatus='FAIL'}
+            if($r.PSObject.Properties['BlockingFailureCount']){$r.BlockingFailureCount=[int]$r.BlockingFailureCount+1}
+        }
     }
     $r
 }
