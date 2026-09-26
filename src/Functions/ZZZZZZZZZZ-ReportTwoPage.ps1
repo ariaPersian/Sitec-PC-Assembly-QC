@@ -184,11 +184,14 @@ function New-SitecCustomerReport {
                 }
             }
             if ($selection -contains 'Graphics') {
-                $burnPairs += [pscustomobject]@{Label='Graphics workload';Value=$stress.GraphicsStress.Status}
+                $gpuEngine=if($stress.GraphicsStress.PSObject.Properties['Engine']){[string]$stress.GraphicsStress.Engine}else{''}
+                $burnPairs += [pscustomobject]@{Label='Graphics workload';Value=("$($stress.GraphicsStress.Status) / $gpuEngine")}
                 if($stress.GraphicsStress.PSObject.Properties['CoverageMode']){
-                    $gpuTarget=if($stress.GraphicsStress.PSObject.Properties['TargetPeakPercent']){$stress.GraphicsStress.TargetPeakPercent}else{''}
+                    $gpuAvg=if($stress.GraphicsStress.PSObject.Properties['TargetAveragePercent']){$stress.GraphicsStress.TargetAveragePercent}else{''}
+                    $gpuPeak=if($stress.GraphicsStress.PSObject.Properties['TargetPeakPercent']){$stress.GraphicsStress.TargetPeakPercent}else{''}
                     $gpuResolution=if($stress.GraphicsStress.PSObject.Properties['Resolution']){[string]$stress.GraphicsStress.Resolution}else{''}
-                    $burnPairs += [pscustomobject]@{Label='GPU mode / target';Value=("{0} / peak >= {1}% / {2}" -f $stress.GraphicsStress.CoverageMode,$gpuTarget,$gpuResolution)}
+                    $gpuWorkload=if($stress.GraphicsStress.PSObject.Properties['WorkloadMode']){[string]$stress.GraphicsStress.WorkloadMode}else{'Legacy'}
+                    $burnPairs += [pscustomobject]@{Label='GPU mode / targets';Value=("{0} / {1} / avg >= {2}% / peak >= {3}% / {4}" -f $stress.GraphicsStress.CoverageMode,$gpuWorkload,$gpuAvg,$gpuPeak,$gpuResolution)}
                 }
             }
             if ($stress.Utilization) {
