@@ -158,7 +158,10 @@ function New-SitecCustomerReport {
         $burnPairs += [pscustomobject]@{Label='Duration';Value=("{0} s" -f $stress.ActualSeconds)}
         if (-not [bool]$stress.TimedOut) {
             if ($selection -contains 'CPU') {
-                $burnPairs += [pscustomobject]@{Label='CPU duty / threads';Value=("{0}% / {1}" -f $stress.CpuStress.DutyPercent,$stress.CpuStress.Threads)}
+                $cpuMode=if($stress.CpuStress.PSObject.Properties['LoadMode']){[string]$stress.CpuStress.LoadMode}else{'Legacy'}
+                $threadCoverage=if($stress.CpuStress.PSObject.Properties['ThreadCoveragePercent']){"$($stress.CpuStress.ThreadCoveragePercent)%"}else{''}
+                $burnPairs += [pscustomobject]@{Label='CPU load mode';Value=$cpuMode}
+                $burnPairs += [pscustomobject]@{Label='CPU duty / threads';Value=("{0}% / {1} of {2} ({3})" -f $stress.CpuStress.DutyPercent,$stress.CpuStress.Threads,$stress.CpuStress.LogicalProcessorsTarget,$threadCoverage)}
             }
             if ($selection -contains 'Memory') {
                 $requestedMB=if($stress.MemoryVerification.PSObject.Properties['RequestedMB']){$stress.MemoryVerification.RequestedMB}else{$stress.MemoryVerification.AllocatedMB}
@@ -175,10 +178,16 @@ function New-SitecCustomerReport {
                 $burnPairs += [pscustomobject]@{Label='RAM verified / errors';Value=("{0} MB / {1}" -f $stress.MemoryVerification.VerifiedMB,$stress.MemoryVerification.Errors)}
             }
             if ($selection -contains 'Disk') {
+                $diskMode=if($stress.DiskStress.PSObject.Properties['LoadMode']){[string]$stress.DiskStress.LoadMode}else{'Legacy'}
+                $diskTarget=if($stress.DiskStress.PSObject.Properties['TargetSizeMB']){"$($stress.DiskStress.TargetSizeMB) MB"}else{''}
+                $burnPairs += [pscustomobject]@{Label='NVMe load mode / target';Value=("$diskMode / $diskTarget")}
+                $burnPairs += [pscustomobject]@{Label='NVMe queue / threads';Value=("$($stress.DiskStress.QueueDepth) / $($stress.DiskStress.Threads)")}
                 $burnPairs += [pscustomobject]@{Label='NVMe sustained read';Value=$(if($null -ne $stress.DiskStress.ReadMBps){"$($stress.DiskStress.ReadMBps) MB/s"}else{$stress.DiskStress.Status})}
             }
             if ($selection -contains 'Graphics') {
-                $burnPairs += [pscustomobject]@{Label='Graphics workload';Value=$stress.GraphicsStress.Status}
+                $gpuMode=if($stress.GraphicsStress.PSObject.Properties['LoadMode']){[string]$stress.GraphicsStress.LoadMode}else{'Legacy'}
+                $burnPairs += [pscustomobject]@{Label='Graphics load mode';Value=$gpuMode}
+                $burnPairs += [pscustomobject]@{Label='Graphics workload';Value=("$($stress.GraphicsStress.Status) / $($stress.GraphicsStress.Engine)")}
             }
             if ($stress.Utilization) {
                 if ($selection -contains 'CPU') { $burnPairs += [pscustomobject]@{Label='CPU utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.CPU.Average,$stress.Utilization.CPU.Peak)} }
