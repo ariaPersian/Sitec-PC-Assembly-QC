@@ -300,6 +300,61 @@ function Get-SitecBurnInMemoryTarget {
     $plan
 }
 
+function Get-SitecBurnInDiskPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][long]$TotalMB,
+        [Parameter(Mandatory)][long]$FreeMB,
+        [Parameter(Mandatory)]$Settings
+    )
+
+    $mode='Fixed'
+    if ($Settings.PSObject.Properties['DiskLoadMode'] -and -not [string]::IsNullOrWhiteSpace([string]$Settings.DiskLoadMode)) {
+        $mode=[string]$Settings.DiskLoadMode
+    }
+
+    $configured=[int]$Settings.DiskTargetSizeMB
+    if ($mode -ne 'MaximumSafe' -and $configured -gt 0) {
+        return [pscustomobject]@{
+            LoadMode='Fixed';TotalMB=$TotalMB;FreeBeforeMB=$FreeMB
+            TargetSizeMB=$configured;ReserveFreeMB=0;TargetPercentOfFree=$null
+        }
+    }
+
+    $percent=2.0
+    if($Settings.PSObject.Properties['DiskTargetPercentOfFree']){$percent=[double]$Settings.DiskTargetPercentOfFree}
+    $minimum=4096
+    if($Settings.PSObject.Properties['DiskTargetMinimumMB']){$minimum=[int]$Settings.DiskTargetMinimumMB}
+    $maximum=16384
+    if($Settings.PSObject.Properties['DiskTargetMaximumMB']){$maximum=[int]$Settings.DiskTargetMaximumMB}
+    $reserve=20480
+    if($Settings.PSObject.Properties['DiskReserveFreeMB']){$reserve=[int]$Settings.DiskReserveFreeMB}
+
+    if($percent -le 0 -or $percent -gt 25){throw "BurnIn.DiskTargetPercentOfFree must be >0 and <=25; actual=$percent."}
+    if($minimum -lt 1024){$minimum=1024}
+    if($maximum -lt $minimum){$maximum=$minimum}
+    if($reserve -lt 4096){$reserve=4096}
+
+    $safeAvailable=[long][math]::Max(0,$FreeMB-$reserve)
+    if($safeAvailable -lt 1024){throw "Insufficient free disk space for MaximumSafe storage burn-in. Free=$FreeMB MB; reserve=$reserve MB."}
+
+    $byPercent=[long][math]::Floor($FreeMB*($percent/100.0))
+    $target=[long][math]::Max($minimum,$byPercent)
+    $target=[long][math]::Min($target,$maximum)
+    $target=[long][math]::Min($target,$safeAvailable)
+
+    [pscustomobject]@{
+        LoadMode='MaximumSafe'
+        TotalMB=[long]$TotalMB
+        FreeBeforeMB=[long]$FreeMB
+        TargetSizeMB=[int]$target
+        ReserveFreeMB=[int]$reserve
+        TargetPercentOfFree=$percent
+        MinimumTargetMB=$minimum
+        MaximumTargetMB=$maximum
+    }
+}
+
 function Get-SitecLoadSnapshot {
     [CmdletBinding()]
     param()
