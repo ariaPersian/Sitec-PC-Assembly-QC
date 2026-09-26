@@ -17,14 +17,17 @@ if ($compact -match [regex]::Escape('if($script:exitCode -ne 0){$phase=''saving 
 }
 
 $start=Get-Content -LiteralPath (Join-Path $root 'Start-SitecQC.ps1') -Raw -Encoding UTF8
-if ($start -notmatch [regex]::Escape('elseif ($script:Worker.ExitCode -eq 2)')) {
-    throw 'GUI does not have an explicit completed-QC-FAIL branch.'
+if ($start -notmatch [regex]::Escape("elseif ($effectiveStatus -in @('FAIL','CANCELLED'))")) {
+    throw 'GUI does not have an explicit Full-JSON-aware completed-QC-FAIL/CANCELLED branch.'
+}
+if ($start -notmatch [regex]::Escape('$fullIsCurrent') -or $start -notmatch [regex]::Escape('$publishedStatus')) {
+    throw 'GUI does not use the current published Full JSON as the authoritative completed QC classification.'
 }
 if ($start -notmatch [regex]::Escape("'Complete - QC FAIL'")) {
     throw 'GUI does not label completed QC failures distinctly.'
 }
-if ($start -notmatch [regex]::Escape("'Runtime error'")) {
-    throw 'GUI does not label runtime errors distinctly.'
+if ($start -notmatch [regex]::Escape("'Application runtime error'")) {
+    throw 'GUI does not label real application runtime errors distinctly.'
 }
 if ($start -notmatch [regex]::Escape('ErrorSummary.PrimaryMessage')) {
     throw 'GUI does not surface the structured QC failure reason from Full JSON.'
