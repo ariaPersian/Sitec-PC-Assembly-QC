@@ -170,6 +170,16 @@ function Publish-SitecFullJson {
     if ($run.PSObject.Properties['PublishedFiles']) { $run.PublishedFiles=[pscustomobject]$published }
     else { $run | Add-Member -NotePropertyName PublishedFiles -NotePropertyValue ([pscustomobject]$published) }
 
+    # Legacy manifests may contain paths to separate human/process failure files.
+    # Full JSON is the authoritative final evidence, so never republish those paths.
+    if ($run.PSObject.Properties['Diagnostics'] -and $run.Diagnostics) {
+        foreach ($legacyDiagnostic in @('ProcessLog','FailureSummary')) {
+            if ($run.Diagnostics.PSObject.Properties[$legacyDiagnostic]) {
+                $run.Diagnostics.PSObject.Properties.Remove($legacyDiagnostic)
+            }
+        }
+    }
+
     $runPath=Split-Path -Parent $ManifestPath
     $errorDetails=@(Get-SitecFullErrorDetails -Run $run -RunPath $runPath)
     $primaryMessage=''

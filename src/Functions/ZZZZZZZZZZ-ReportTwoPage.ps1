@@ -201,7 +201,11 @@ function New-SitecCustomerReport {
                 if ($selection -contains 'CPU') { $burnPairs += [pscustomobject]@{Label='CPU utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.CPU.Average,$stress.Utilization.CPU.Peak)} }
                 if ($selection -contains 'Memory') { $burnPairs += [pscustomobject]@{Label='RAM utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.Memory.Average,$stress.Utilization.Memory.Peak)} }
                 if ($selection -contains 'Disk') { $burnPairs += [pscustomobject]@{Label='Disk utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.Disk.Average,$stress.Utilization.Disk.Peak)} }
-                if ($selection -contains 'Graphics') { $burnPairs += [pscustomobject]@{Label='GPU utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.GPU.Average,$stress.Utilization.GPU.Peak)} }
+                if ($selection -contains 'Graphics') {
+                    $gpuTelemetryStatus=if($stress.GraphicsStress -and $stress.GraphicsStress.PSObject.Properties['TelemetryStatus']){[string]$stress.GraphicsStress.TelemetryStatus}else{'VALID'}
+                    $gpuUtilizationText=if($gpuTelemetryStatus -eq 'VALID'){("{0}% / {1}%" -f $stress.Utilization.GPU.Average,$stress.Utilization.GPU.Peak)}else{'Unavailable (Windows counter telemetry)'}
+                    $burnPairs += [pscustomobject]@{Label='GPU utilization avg / peak';Value=$gpuUtilizationText}
+                }
             }
         } else {
             $burnPairs += [pscustomobject]@{Label='Timeout';Value=$stress.Error}

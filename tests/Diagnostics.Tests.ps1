@@ -11,7 +11,8 @@ try {
     Write-SitecStepResult -RunPath $temp -Step '01-test-step' -Value ([pscustomobject]@{Status='PASS';Metric=123}) | Out-Null
 
     if (-not (Test-Path -LiteralPath $diag.Events)) { throw 'events.jsonl was not created.' }
-    if (-not (Test-Path -LiteralPath $diag.Human)) { throw 'process.log was not created.' }
+    if ($diag.PSObject.Properties['Human']) { throw 'Diagnostics still exposes the removed process.log output.' }
+    if (Test-Path -LiteralPath (Join-Path $temp 'diagnostics\process.log')) { throw 'process.log must not be created.' }
     if (-not (Test-Path -LiteralPath (Join-Path $diag.Steps '01-test-step.json'))) { throw 'step result JSON was not created.' }
 
     $eventLine=Get-Content -LiteralPath $diag.Events -Encoding UTF8 | Select-Object -Last 1
@@ -39,8 +40,8 @@ try {
     $summary=Write-SitecFailureSummary -RunPath $temp `
         -BomValidation ([pscustomobject]@{Checks=@()}) `
         -BenchmarkValidation ([pscustomobject]@{Checks=@([pscustomobject]@{Name='CPU average load';Status='FAIL';Severity='Error';Expected='>= 80%';Actual='73.9%'})})
-    if ($summary.FailureCount -ne 1) { throw 'Failure summary did not count the failing check.' }
-    if (-not (Test-Path -LiteralPath (Join-Path $temp 'failure-summary.json'))) { throw 'failure-summary.json was not written.' }
+    if ($summary.FailureCount -ne 1) { throw 'In-memory failure summary did not count the failing check.' }
+    if (Test-Path -LiteralPath (Join-Path $temp 'failure-summary.json')) { throw 'failure-summary.json must not be created; Full JSON is authoritative.' }
 
     Write-Host 'Diagnostics and identity tests passed.' -ForegroundColor Green
 } finally {

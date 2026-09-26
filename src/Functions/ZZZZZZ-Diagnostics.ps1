@@ -1,5 +1,7 @@
 # Structured per-step diagnostics. Loaded after the benchmark engines so wrappers
-# can preserve the original implementations while adding durable observability.
+# can preserve the original implementations while keeping machine-readable
+# observability inside the transient run workspace. Final operator evidence is
+# consolidated into the published Full JSON.
 
 $script:SitecOriginalWinSat = ${function:Invoke-SitecWinSat}
 $script:SitecOriginalDiskSpd = ${function:Invoke-SitecDiskSpd}
@@ -11,10 +13,8 @@ function Initialize-SitecDiagnostics {
     $steps=Join-Path $diag 'steps'
     New-Item -ItemType Directory -Path $steps -Force | Out-Null
     $events=Join-Path $diag 'events.jsonl'
-    $human=Join-Path $diag 'process.log'
     if (-not (Test-Path -LiteralPath $events)) { New-Item -ItemType File -Path $events -Force | Out-Null }
-    if (-not (Test-Path -LiteralPath $human)) { New-Item -ItemType File -Path $human -Force | Out-Null }
-    [pscustomobject]@{Root=$diag;Steps=$steps;Events=$events;Human=$human}
+    [pscustomobject]@{Root=$diag;Steps=$steps;Events=$events}
 }
 
 function Write-SitecDiagnosticEvent {
@@ -52,8 +52,6 @@ function Write-SitecDiagnosticEvent {
         }
         $line=([pscustomobject]$o | ConvertTo-Json -Depth 12 -Compress)
         Add-Content -LiteralPath $d.Events -Value $line -Encoding UTF8
-        $humanLine='[{0}] [{1}] [{2}] [{3}] {4}' -f (Get-Date -Format 'HH:mm:ss.fff'),$Level,$Stage,$Step,$Message
-        Add-Content -LiteralPath $d.Human -Value $humanLine -Encoding UTF8
     } catch {
         # Diagnostics must never break QC execution.
     }
@@ -135,8 +133,9 @@ function Write-SitecFailureSummary {
         WarningCount=@($rows | Where-Object Status -eq 'WARNING').Count
         Items=@($rows)
     }
-    $path=Join-Path $RunPath 'failure-summary.json'
-    $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $path -Encoding UTF8
+    # Do not emit a second failure-summary file. The returned object is used by
+    # the worker for concise UI messaging, while the complete validation checks
+    # and exact failure details are published in <AssetId>-Full.json.
     foreach ($r in $rows) {
         Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'Validation' -Step $r.Name -Level $(if($r.Status -eq 'FAIL'){'ERROR'}else{'WARNING'}) -Status $r.Status -Message ("{0}: expected [{1}], actual [{2}]" -f $r.Name,$r.Expected,$r.Actual) -Data $r
     }

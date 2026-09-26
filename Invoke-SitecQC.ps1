@@ -155,7 +155,7 @@ try {
         BenchmarkValidation=$benchValidation
         DuplicateSerials=$duplicates
         PassMarkEvidence=$passmark
-        Diagnostics=[pscustomobject]@{Events=(Join-Path $runPath 'diagnostics\events.jsonl');ProcessLog=(Join-Path $runPath 'diagnostics\process.log');FailureSummary=(Join-Path $runPath 'failure-summary.json');FatalError=(Join-Path $runPath 'fatal-error.json');BurnInChildError=(Join-Path $runPath 'diagnostics\burnin-child-error.json')}
+        Diagnostics=[pscustomobject]@{Events=(Join-Path $runPath 'diagnostics\events.jsonl');FatalError=(Join-Path $runPath 'fatal-error.json');BurnInChildError=(Join-Path $runPath 'diagnostics\burnin-child-error.json')}
         Execution=[pscustomobject]@{
             Cancelled=$cancelled
             CancellationReason=$(if($cancelled){$cancelMessage}else{''})
@@ -203,7 +203,7 @@ try {
         AssetId=$AssetId;RunId=$runId;OverallStatus=$overall;RunPath=$runPath
         HardwareIdentitySha256=$security.HardwareIdentitySha256;ManifestSha256=$security.Sha256
         Manifest=$manifest;Html=$report.HtmlPath;Pdf=$report.PdfPath
-        FailureSummary=(Join-Path $runPath 'failure-summary.json')
+        ValidationSummary=$failureSummary
         Diagnostics=(Join-Path $runPath 'diagnostics')
     }
     $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runPath 'result.json') -Encoding UTF8
@@ -218,7 +218,7 @@ try {
     } else {
         $failedNames=@($failureSummary.Items | Where-Object Status -eq 'FAIL' | Select-Object -ExpandProperty Name)
         $short=($failedNames | Select-Object -First 3) -join '; '
-        Set-WorkerStatus 'Complete' 100 ("QC complete: FAIL | Causes: {0} | See Full JSON, failure-summary.json and diagnostics\process.log" -f $short) 'COMPLETE' 0
+        Set-WorkerStatus 'Complete' 100 ("QC complete: FAIL | Causes: {0} | Exact benchmark/QC details are in the published Full JSON" -f $short) 'COMPLETE' 0
     }
 
     if ($overall -in @('PASS','PASS_WITH_BOM_MISMATCH')) { exit 0 } else { exit 2 }
@@ -251,14 +251,14 @@ try {
             SchemaVersion='1.2';AssetId=$AssetId;RunId=$runId;Operator=$Operator;StartedAt=$runStart.ToString('o');CompletedAt=(Get-Date).ToString('o');OverallStatus='ERROR'
             Profile=$profile;Physical=$physical;Hardware=$hardware;BomValidation=$bom;BenchmarkSelection=@($selectedBenchmarkComponents);Benchmark=$benchmark;BenchmarkValidation=$benchValidation
             DuplicateSerials=@();PassMarkEvidence=@($passmark)
-            Diagnostics=[pscustomobject]@{Events=(Join-Path $runPath 'diagnostics\events.jsonl');ProcessLog=(Join-Path $runPath 'diagnostics\process.log');FailureSummary=(Join-Path $runPath 'failure-summary.json');FatalError=(Join-Path $runPath 'fatal-error.json');BurnInChildError=(Join-Path $runPath 'diagnostics\burnin-child-error.json')}
+            Diagnostics=[pscustomobject]@{Events=(Join-Path $runPath 'diagnostics\events.jsonl');FatalError=(Join-Path $runPath 'fatal-error.json');BurnInChildError=(Join-Path $runPath 'diagnostics\burnin-child-error.json')}
             Execution=[pscustomobject]@{Cancelled=$false;CancellationReason='';CancellationRequestPath=$cancelPath;RuntimeError=$true}
             RuntimeFailure=$fatal
             Security=$null
         }
         $manifest=Join-Path $runPath 'hardware-qc-manifest.json'
         $partialRun | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $manifest -Encoding UTF8
-        [pscustomobject]@{AssetId=$AssetId;RunId=$runId;OverallStatus='ERROR';RunPath=$runPath;Manifest=$manifest;FailureSummary=(Join-Path $runPath 'failure-summary.json');Diagnostics=(Join-Path $runPath 'diagnostics');RuntimeFailure=$fatal} | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runPath 'result.json') -Encoding UTF8
+        [pscustomobject]@{AssetId=$AssetId;RunId=$runId;OverallStatus='ERROR';RunPath=$runPath;Manifest=$manifest;Diagnostics=(Join-Path $runPath 'diagnostics');RuntimeFailure=$fatal} | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runPath 'result.json') -Encoding UTF8
     } catch {}
     try { Set-WorkerStatus 'Error' 100 $msg 'ERROR' 0 } catch {}
     Write-Error $_

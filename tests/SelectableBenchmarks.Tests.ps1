@@ -59,6 +59,28 @@ try {
     $benchmark.BurnIn.MemoryVerification.AllocationCoveragePercent=80
     $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
     if ($result.Status -ne 'FAIL') { throw 'Insufficient MaximumSafe allocation coverage did not fail QC.' }
+
+    # Regression: Intel/iGPU Windows counters may remain at 0% while the
+    # authoritative WinSAT Direct3D workload completes successfully. Counter
+    # telemetry must become an advisory warning, not a false hardware failure.
+    $benchmark.Selection=@('Graphics')
+    $benchmark.BurnIn.Status='PASS'
+    $benchmark.BurnIn.GraphicsStress=[pscustomobject]@{
+        Enabled=$true;Required=$true;Status='PASS';CoverageMode='MaximumSafe'
+        WorkloadMode='Direct3D-ALU';TelemetryStatus='UNAVAILABLE'
+        TelemetryReason='Windows GPU utilization counters remained at 0% while the WinSAT graphics workload completed successfully.'
+    }
+    $benchmark.BurnIn.Utilization.GPU=[pscustomobject]@{Average=0;Peak=0;Samples=40}
+    $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
+    if ($result.Status -ne 'PASS') { throw 'Unavailable zero-only GPU telemetry incorrectly failed a successful graphics workload.' }
+    $gpuTelemetry=@($result.Checks | Where-Object Name -eq 'GPU utilization telemetry')
+    if ($gpuTelemetry.Count -ne 1 -or $gpuTelemetry[0].Status -ne 'WARNING') { throw 'Unavailable GPU telemetry was not recorded as one advisory warning.' }
+    if (@($result.Checks | Where-Object Name -match '^GPU (average|peak) load').Count -ne 0) { throw 'Numeric GPU load thresholds were applied to unavailable counter telemetry.' }
+
+    # Workload execution itself remains a blocking gate.
+    $benchmark.BurnIn.GraphicsStress.Status='FAIL'
+    $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
+    if ($result.Status -ne 'FAIL') { throw 'A failed required graphics workload did not fail QC.' }
 } finally {
     $env:SITECQC_BENCHMARK_COMPONENTS=$previous
 }

@@ -286,13 +286,29 @@ function Test-SitecBenchmarkResults {
             }
             if (Selected 'Graphics') {
                 $gpuSeverity=if($burn.PSObject.Properties['GraphicsStress'] -and $burn.GraphicsStress.Required){'Error'}else{'Warning'}
-                if ($null -ne $burn.Utilization.GPU.Average -and $t.PSObject.Properties['MinimumBurnInGpuAveragePercent']) {
-                    $checks += New-SitecCheck 'GPU average load during burn-in' (">= $($t.MinimumBurnInGpuAveragePercent)%") ("$($burn.Utilization.GPU.Average)%") ([double]$burn.Utilization.GPU.Average -ge [double]$t.MinimumBurnInGpuAveragePercent) $gpuSeverity
-                } else {
-                    $checks += New-SitecCheck 'GPU utilization telemetry' 'Available' 'Unavailable' $false $gpuSeverity
+                $gpuTelemetryStatus=''
+                $gpuTelemetryReason=''
+                if($burn.PSObject.Properties['GraphicsStress'] -and $burn.GraphicsStress){
+                    if($burn.GraphicsStress.PSObject.Properties['TelemetryStatus']){$gpuTelemetryStatus=[string]$burn.GraphicsStress.TelemetryStatus}
+                    if($burn.GraphicsStress.PSObject.Properties['TelemetryReason']){$gpuTelemetryReason=[string]$burn.GraphicsStress.TelemetryReason}
                 }
-                if ($null -ne $burn.Utilization.GPU.Peak -and $t.PSObject.Properties['MinimumBurnInGpuPeakPercent']) {
-                    $checks += New-SitecCheck 'GPU peak load during burn-in' (">= $($t.MinimumBurnInGpuPeakPercent)%") ("$($burn.Utilization.GPU.Peak)%") ([double]$burn.Utilization.GPU.Peak -ge [double]$t.MinimumBurnInGpuPeakPercent) $gpuSeverity
+                if([string]::IsNullOrWhiteSpace($gpuTelemetryStatus)){
+                    $hasMeasuredGpuLoad=($null -ne $burn.Utilization.GPU.Average -and $null -ne $burn.Utilization.GPU.Peak -and ([double]$burn.Utilization.GPU.Average -gt 0 -or [double]$burn.Utilization.GPU.Peak -gt 0))
+                    $gpuTelemetryStatus=if($hasMeasuredGpuLoad){'VALID'}else{'UNAVAILABLE'}
+                }
+
+                if($gpuTelemetryStatus -eq 'VALID'){
+                    if ($null -ne $burn.Utilization.GPU.Average -and $t.PSObject.Properties['MinimumBurnInGpuAveragePercent']) {
+                        $checks += New-SitecCheck 'GPU average load during burn-in' (">= $($t.MinimumBurnInGpuAveragePercent)%") ("$($burn.Utilization.GPU.Average)%") ([double]$burn.Utilization.GPU.Average -ge [double]$t.MinimumBurnInGpuAveragePercent) $gpuSeverity
+                    } else {
+                        $checks += New-SitecCheck 'GPU utilization telemetry' 'Reliable utilization counters' 'Unavailable' $false 'Warning'
+                    }
+                    if ($null -ne $burn.Utilization.GPU.Peak -and $t.PSObject.Properties['MinimumBurnInGpuPeakPercent']) {
+                        $checks += New-SitecCheck 'GPU peak load during burn-in' (">= $($t.MinimumBurnInGpuPeakPercent)%") ("$($burn.Utilization.GPU.Peak)%") ([double]$burn.Utilization.GPU.Peak -ge [double]$t.MinimumBurnInGpuPeakPercent) $gpuSeverity
+                    }
+                } else {
+                    if([string]::IsNullOrWhiteSpace($gpuTelemetryReason)){$gpuTelemetryReason='Windows GPU utilization counters were unavailable or returned only zero samples.'}
+                    $checks += New-SitecCheck 'GPU utilization telemetry' 'Reliable utilization counters' $gpuTelemetryReason $false 'Warning'
                 }
             }
         }

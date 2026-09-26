@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.15.1 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / advisory BOM conformance / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
+Current production workflow: **v3.15.2 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / advisory BOM conformance / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -114,7 +114,7 @@ Production QC combines:
 - **MaximumSafe CPU:** 100% requested duty on every logical processor, with explicit 100% thread-coverage and sustained/peak utilization gates;
 - **MaximumSafe RAM:** deterministic write/verify consumes almost all currently free physical RAM while keeping a dynamic safety reserve of 5% of installed memory, clamped to 2-4 GB; on a typical 64 GB system with about 12 GB already in use, approximately 49-50 GB is requested;
 - **MaximumSafe NVMe:** Microsoft DiskSpd uses uncached/write-through I/O, high queue depth and a 4-16 GB temporary test file sized from available free space. Burn-in is intentionally read-only to saturate the controller/NAND without repeatedly overwriting the full SSD; short qualification tests still verify write throughput;
-- **MaximumSafe GPU:** WinSAT Direct3D ALU runs off-screen at 1920x1080 as the production graphics stress workload; when Graphics is selected it is a required gate with >=70% average and >=90% peak measured GPU utilization;
+- **MaximumSafe GPU:** WinSAT Direct3D ALU runs off-screen at 1920x1080 as the production graphics stress workload. When Windows GPU performance counters provide valid non-zero telemetry, the configured >=70% average and >=90% peak utilization gates are enforced. Some Intel iGPU/driver combinations return stale 0% counters for a successfully completed off-screen WinSAT workload; that specific condition is now recorded as unavailable/advisory telemetry instead of a false hardware failure, while failure of the graphics workload itself remains a blocking QC gate;
 - concurrent burn-in using only the selected CPU/RAM/NVMe/graphics workloads;
 - Windows WHEA hardware-error monitoring;
 - LibreHardwareMonitor sensor sampling when supported;
@@ -124,7 +124,7 @@ RAM validation is plan-aware: at least 95% of the calculated safe allocation mus
 
 Operator feedback during QC now includes an explicit numeric progress percentage plus elapsed and estimated/known remaining time. While a benchmark is active, the GUI exposes a **CANCEL BENCHMARK** action; cancellation stops the owned benchmark process tree, marks the run as `CANCELLED`, and still finalizes the durable evidence instead of treating the operator action as an application crash.
 
-The durable `<AssetId>-Full.json` remains compatible with the rich `SITEC-QC-FULL-V1` structure and is now also produced for runtime-error runs whenever a run directory/partial manifest can be recovered. It contains `ErrorSummary`, `ErrorDetails`, `BenchmarkFailure`, diagnostics metadata and the Excel-compatible inventory projection. Benchmark child exceptions preserve the exact exception type, FullyQualifiedErrorId, PowerShell script stack, position and diagnostic source path.
+The durable `<AssetId>-Full.json` remains compatible with the rich `SITEC-QC-FULL-V1` structure and is now also produced for runtime-error runs whenever a run directory/partial manifest can be recovered. It contains `ErrorSummary`, `ErrorDetails`, `BenchmarkFailure`, diagnostics metadata and the Excel-compatible inventory projection. Benchmark child exceptions preserve the exact exception type, FullyQualifiedErrorId, PowerShell script stack, position and diagnostic source path. The Full JSON is the authoritative final machine-readable failure/success record; separate `failure-summary.json` and `diagnostics\process.log` files are no longer created or published.
 
 Runtime benchmark XML/log/HTML files are temporary and are removed after completion. Only a real application/runtime fault may keep one `LastFailure.zip` under `Output` for troubleshooting; a completed QC `FAIL` does not.
 

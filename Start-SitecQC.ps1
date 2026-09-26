@@ -261,11 +261,18 @@ $timer.Add_Tick({
         $ProgressQc.Value=100;$TxtProgressPercent.Text='100%'
         if($script:StartedAt){$TxtElapsed.Text=('Elapsed: '+(Format-SitecUiDuration (((Get-Date)-$script:StartedAt).TotalSeconds)))}
         $TxtRemaining.Text='Remaining: 00:00'
-        if ($script:Worker.ExitCode -eq 0) {
-            $publishedStatus='PASS';$bomConformance='MATCH';$bomWarnings=@()
-            $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $asset
-            if(Test-Path -LiteralPath $fullJson){
-                try {
+        # The freshly published Full JSON is authoritative for the completed
+        # QC classification. This prevents an exit-code propagation problem in
+        # the launcher/wrapper from relabeling a completed QC FAIL as a runtime
+        # ERROR in the GUI.
+        $publishedStatus='';$bomConformance='MATCH';$bomWarnings=@();$reason=''
+        $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $asset
+        $fullIsCurrent=$false
+        if(Test-Path -LiteralPath $fullJson){
+            try {
+                $fullItem=Get-Item -LiteralPath $fullJson -ErrorAction Stop
+                $fullIsCurrent=(-not $script:StartedAt -or $fullItem.LastWriteTime -ge $script:StartedAt.AddSeconds(-5))
+                if($fullIsCurrent){
                     $full=Get-Content -LiteralPath $fullJson -Raw -Encoding UTF8 | ConvertFrom-Json
                     if($full.PSObject.Properties['OverallStatus']){$publishedStatus=[string]$full.OverallStatus}
                     if($full.PSObject.Properties['BomConformanceStatus']){$bomConformance=[string]$full.BomConformanceStatus}
@@ -273,55 +280,49 @@ $timer.Add_Tick({
                     if($full.BomValidation -and $full.BomValidation.PSObject.Properties['Checks']){
                         $bomWarnings=@($full.BomValidation.Checks | Where-Object Status -eq 'WARNING' | Select-Object -ExpandProperty Name)
                     }
-                } catch {}
-            }
+                    if($full.PSObject.Properties['ErrorSummary'] -and $full.ErrorSummary){$reason=[string]$full.ErrorSummary.PrimaryMessage}
+                }
+            } catch {}
+        }
+
+        $effectiveStatus=''
+        if($fullIsCurrent -and -not [string]::IsNullOrWhiteSpace($publishedStatus)){$effectiveStatus=$publishedStatus}
+        elseif($script:Worker.ExitCode -eq 0){$effectiveStatus='PASS'}
+        elseif($script:Worker.ExitCode -eq 2){$effectiveStatus='FAIL'}
+        else{$effectiveStatus='ERROR'}
+
+        if ($effectiveStatus -in @('PASS','PASS_WITH_BOM_MISMATCH')) {
             $TxtHeaderStatus.Text='PASS';$TxtHeaderStatus.Foreground='#A8E6BE'
-            if($publishedStatus -eq 'PASS_WITH_BOM_MISMATCH' -or $bomConformance -eq 'MISMATCH'){
+            if($effectiveStatus -eq 'PASS_WITH_BOM_MISMATCH' -or $bomConformance -eq 'MISMATCH'){
                 $TxtStage.Text='Complete - BOM mismatch advisory'
                 $summary=($bomWarnings | Select-Object -First 4) -join '; '
                 if([string]::IsNullOrWhiteSpace($summary)){$summary='Configuration differs from the selected BOM profile.'}
-                $TxtMessage.Text=("Hardware QC PASS. BOM profile mismatch recorded as advisory: {0} This is not a hardware failure. PDF + Baseline JSON + Full JSON saved to {1}\Output." -f $summary,$BaselineRoot)
+                $TxtMessage.Text=("Hardware QC PASS. BOM profile mismatch recorded as advisory: {0} This is not a hardware failure. QC Certificate PDF + Full JSON saved to {1}\Output." -f $summary,$BaselineRoot)
             } else {
                 $TxtStage.Text='Complete'
-                $TxtMessage.Text="QC complete: PASS. PDF + Baseline JSON + Full JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB."
+                $TxtMessage.Text="QC complete: PASS. QC Certificate PDF + Full JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB."
             }
         }
-        elseif ($script:Worker.ExitCode -eq 2) {
-            $reason='';$publishedStatus='FAIL'
-            $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $asset
-            if (Test-Path -LiteralPath $fullJson) {
-                try {
-                    $full=Get-Content -LiteralPath $fullJson -Raw -Encoding UTF8 | ConvertFrom-Json
-                    if ($full.PSObject.Properties['OverallStatus']) { $publishedStatus=[string]$full.OverallStatus }
-                    if ($full.PSObject.Properties['ErrorSummary'] -and $full.ErrorSummary) { $reason=[string]$full.ErrorSummary.PrimaryMessage }
-                } catch {}
-            }
-            if($publishedStatus -eq 'CANCELLED'){
+        elseif ($effectiveStatus -in @('FAIL','CANCELLED')) {
+            if($effectiveStatus -eq 'CANCELLED'){
                 $TxtHeaderStatus.Text='CANCELLED';$TxtHeaderStatus.Foreground='#FFD166';$TxtStage.Text='Benchmark cancelled'
                 if ([string]::IsNullOrWhiteSpace($reason)) { $reason='Benchmark cancelled by operator.' }
                 $TxtMessage.Text=("QC benchmark cancelled. {0} Partial PDF/Full JSON evidence was saved to {1}\Output." -f $reason,$BaselineRoot)
             } else {
                 $TxtHeaderStatus.Text='FAIL';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtStage.Text='Complete - QC FAIL'
                 if ([string]::IsNullOrWhiteSpace($reason)) { $reason='One or more QC validation gates failed.' }
-                $TxtMessage.Text=("QC completed: FAIL. {0} PDF + Baseline JSON + Full JSON were saved to {1}\Output. This is a QC result, not an application error." -f $reason,$BaselineRoot)
+                $TxtMessage.Text=("QC completed: FAIL. {0} QC Certificate PDF + Full JSON were saved to {1}\Output. Exact failure details are in Full JSON; this is a QC result, not an application runtime error." -f $reason,$BaselineRoot)
             }
         }
         else {
-            $TxtHeaderStatus.Text='ERROR';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtStage.Text='Runtime error'
-            $failureMessage=''
-            $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $asset
-            if(Test-Path -LiteralPath $fullJson){
-                try {
-                    $full=Get-Content -LiteralPath $fullJson -Raw -Encoding UTF8 | ConvertFrom-Json
-                    if($full.PSObject.Properties['ErrorSummary'] -and $full.ErrorSummary){$failureMessage=[string]$full.ErrorSummary.PrimaryMessage}
-                } catch {}
-            }
+            $TxtHeaderStatus.Text='ERROR';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtStage.Text='Application runtime error'
+            $failureMessage=$reason
             $failureJson=Join-Path (Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot) ($asset+'-LastFailure.json')
-            if (Test-Path -LiteralPath $failureJson) {
+            if ([string]::IsNullOrWhiteSpace($failureMessage) -and (Test-Path -LiteralPath $failureJson)) {
                 try { $failureMessage=[string](Get-Content -LiteralPath $failureJson -Raw -Encoding UTF8 | ConvertFrom-Json).message } catch {}
             }
             if ([string]::IsNullOrWhiteSpace($failureMessage)) { $failureMessage='The QC application or publishing pipeline encountered a runtime error.' }
-            $TxtMessage.Text=("QC runtime ERROR. {0} Check LastFailure diagnostics in {1}\Output." -f $failureMessage,$BaselineRoot)
+            $TxtMessage.Text=("QC application ERROR. {0} Full JSON is the authoritative QC evidence when it is available." -f $failureMessage)
         }
         $script:Worker=$null;$script:WorkRoot=$null;$script:CancelPath=$null
     }
