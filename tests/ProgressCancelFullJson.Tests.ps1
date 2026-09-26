@@ -14,6 +14,8 @@ $start=Get-Content -LiteralPath (Join-Path $root 'Start-SitecQC.ps1') -Raw -Enco
 Assert-True ($start -match 'cancel\.request\.json') 'GUI does not create the cancellation request file.'
 Assert-True ($start -match 'RemainingSeconds') 'GUI does not display remaining benchmark time.'
 Assert-True ($start -match 'ElapsedSeconds') 'GUI does not display elapsed benchmark time.'
+Assert-True ($start -match "effectiveStatus=''" -and $start -match 'fullIsCurrent') 'GUI does not derive the final classification from the current Full JSON.'
+Assert-True ($start -match "effectiveStatus -in @\('FAIL','CANCELLED'\)") 'GUI can relabel a completed QC FAIL as a runtime error.'
 
 $worker=Get-Content -LiteralPath (Join-Path $root 'Invoke-SitecQC.ps1') -Raw -Encoding UTF8
 Assert-True ($worker -match 'OverallStatus=.ERROR.') 'Worker no longer creates a structured runtime-error run.'
@@ -111,6 +113,8 @@ try {
         Assert-True ([bool]$full.PSObject.Properties[$property]) "Full JSON is missing top-level field: $property"
     }
     Assert-True ($full.FullExportSchema -eq 'SITEC-QC-FULL-V1') 'Full JSON schema compatibility marker is incorrect.'
+    Assert-True (-not $full.Diagnostics.PSObject.Properties['ProcessLog']) 'Full JSON still publishes the obsolete diagnostics/process.log path.'
+    Assert-True (-not $full.Diagnostics.PSObject.Properties['FailureSummary']) 'Full JSON still publishes the obsolete failure-summary.json path.'
     Assert-True ($full.ErrorSummary.HasErrors -and $full.ErrorSummary.Count -gt 0) 'Runtime error did not populate ErrorSummary.'
     $exact=@($full.ErrorDetails | Where-Object Source -eq 'BurnInChild' | Select-Object -First 1)
     Assert-True ($exact.Count -eq 1) 'Exact burn-in child exception was not persisted.'
