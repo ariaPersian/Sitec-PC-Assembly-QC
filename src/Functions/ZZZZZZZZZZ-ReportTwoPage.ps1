@@ -192,12 +192,17 @@ function New-SitecCustomerReport {
     }
     $allChecks=@($bomChecks)+@($benchmarkChecks)
     $failedChecks=@($allChecks | Where-Object { [string]$_.Status -ne 'PASS' })
-    $checks=if([string]$Run.OverallStatus -eq 'PASS'){@($benchmarkChecks)}else{$failedChecks}
+    $checks=@()
+    if ([string]$Run.OverallStatus -eq 'PASS') { $checks=@($benchmarkChecks) }
+    else { $checks=@($failedChecks) }
     $checkTitle=if([string]$Run.OverallStatus -eq 'PASS'){'QC Validation'}else{'Failure Details'}
-    $checkTable=ConvertTo-SitecCompactTable -Rows $checks -Columns @(
-        [pscustomobject]@{Label='QC check';Getter={param($x)$x.Name}},[pscustomobject]@{Label='Expected';Getter={param($x)$x.Expected}},
-        [pscustomobject]@{Label='Actual';Getter={param($x)$x.Actual}},[pscustomobject]@{Label='Status';Getter={param($x)$x.Status}}
-    )
+    $checkTable=''
+    if ($checks.Count -gt 0) {
+        $checkTable=ConvertTo-SitecCompactTable -Rows $checks -Columns @(
+            [pscustomobject]@{Label='QC check';Getter={param($x)$x.Name}},[pscustomobject]@{Label='Expected';Getter={param($x)$x.Expected}},
+            [pscustomobject]@{Label='Actual';Getter={param($x)$x.Actual}},[pscustomobject]@{Label='Status';Getter={param($x)$x.Status}}
+        )
+    }
     $failureDescriptions=@($failedChecks | ForEach-Object { '{0}: expected [{1}], actual [{2}]' -f $_.Name,$_.Expected,$_.Actual })
     $errorCandidates=@($b.WinSAT,$b.DiskSpd)
     if ($stress) {
