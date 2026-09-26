@@ -12,23 +12,42 @@ function New-SitecBurnInTimeoutResult {
         [double]$ActualSeconds,
         [string]$Reason='Burn-in watchdog timeout'
     )
+    $selection=@()
+    try { $selection=@(Get-SitecBenchmarkSelection) } catch {}
+    function Sel([string]$Name){$selection -contains $Name}
     [pscustomobject]@{
         Status='FAIL'
         Required=$true
+        Cancelled=$false
         Error=$Reason
         TimedOut=$true
         DurationSeconds=$DurationSeconds
         ActualSeconds=[math]::Round($ActualSeconds,1)
-        CpuStress=[pscustomobject]@{Seconds=0;Threads=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}
-        MemoryVerification=[pscustomobject]@{RequestedMB=0;AllocatedMB=0;VerifiedMB=0;Errors=[long]::MaxValue;Seconds=0;Passes=0;TargetSystemUsagePercent=$null}
-        DiskStress=[pscustomobject]@{Enabled=$true;Status='TIMEOUT';ReadMBps=$null;ReadIOPS=$null;AverageReadLatencyMs=$null;Error=$Reason}
-        GraphicsStress=[pscustomobject]@{Enabled=$true;Required=$false;Status='TIMEOUT';Engine='Isolated burn-in child process';Error=$Reason}
+        Selection=@($selection)
+        CpuStress=[pscustomobject]@{
+            Enabled=(Sel 'CPU');Status=$(if(Sel 'CPU'){'TIMEOUT'}else{'SKIPPED'});CoverageMode=$(if(Sel 'CPU'){'MaximumSafe'}else{'None'})
+            Seconds=0;LogicalProcessors=[Environment]::ProcessorCount;Threads=0;ThreadCoveragePercent=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0
+        }
+        MemoryVerification=[pscustomobject]@{
+            Enabled=(Sel 'Memory');Status=$(if(Sel 'Memory'){'TIMEOUT'}else{'SKIPPED'});RequestedMB=0;AllocatedMB=0;VerifiedMB=0;Errors=$(if(Sel 'Memory'){[long]::MaxValue}else{0})
+            Seconds=0;Passes=0;CoverageMode=$(if(Sel 'Memory'){'MaximumSafe'}else{'None'});TargetSystemUsagePercent=$null;ExpectedSystemUsagePercent=$null
+            AllocationMode=$(if(Sel 'Memory'){'MaximumSafe'}else{'None'});SafeCoverageTargetMB=0;AllocationCoveragePercent=0;ReserveMB=0
+        }
+        DiskStress=[pscustomobject]@{
+            Enabled=(Sel 'Disk');Status=$(if(Sel 'Disk'){'TIMEOUT'}else{'SKIPPED'});CoverageMode=$(if(Sel 'Disk'){'MaximumSafe'}else{'None'})
+            ProcessExitCode=$null;ReadMBps=$null;ReadIOPS=$null;AverageReadLatencyMs=$null;TargetSizeMB=0;FreeBeforeMB=0;ReserveFreeMB=0
+            BlockSizeKB=0;QueueDepth=0;Threads=0;WritePercent=0;CacheMode='None';ForcedStop=$true;Error=$Reason;XmlPath='';StdErrPath=''
+        }
+        GraphicsStress=[pscustomobject]@{
+            Enabled=(Sel 'Graphics');Required=(Sel 'Graphics');Status=$(if(Sel 'Graphics'){'TIMEOUT'}else{'SKIPPED'});CoverageMode=$(if(Sel 'Graphics'){'MaximumSafe'}else{'None'})
+            WorkloadMode=$(if(Sel 'Graphics'){'Direct3D-ALU'}else{'None'});TargetAveragePercent=0;TargetPeakPercent=0;NormalWindows=0;GlassWindows=0;Resolution=''
+            Offscreen=$true;NoLock=$false;ProcessExitCode=$null;Engine='Isolated burn-in child process';ForcedStop=$true;Error=$Reason;OutputPath='';StdErrPath=''
+        }
         Utilization=(Get-SitecLoadSummary @())
         Sensors=@()
         LoadSamples=@()
     }
 }
-
 function New-SitecBurnInCancelledResult {
     param(
         [int]$DurationSeconds,
