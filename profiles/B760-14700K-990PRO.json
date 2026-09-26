@@ -1,7 +1,7 @@
 {
   "ProfileId": "B760-14700K-990PRO",
-  "ProfileVersion": 8,
-  "Description": "GREEN AVA+ / ASUS TUF B760-PLUS WIFI / Core i7-14700K / 16GB DDR5 / Samsung 990 PRO 1TB / GREEN GP700A-GED V3.1 / DeepCool AG400 PLUS / bounded 8-minute concurrent production burn-in with MaximumSafe CPU/RAM/NVMe and Direct3D ALU GPU coverage",
+  "ProfileVersion": 9,
+  "Description": "GREEN AVA+ / ASUS TUF B760-PLUS WIFI / Core i7-14700K / 16GB DDR5 / Samsung 990 PRO 1TB / GREEN GP700A-GED V3.1 / DeepCool AG400 PLUS / bounded 8-minute concurrent production burn-in with MaximumSafe CPU/RAM/NVMe and Direct3D ALU GPU coverage; advisory BOM conformance with blocking identity/integrity checks",
   "Expected": {
     "CaseModel": "GREEN AVA+",
     "PsuModel": "GREEN GP700A-GED V3.1 80PLUS BRONZE ATX3.1 700W",
@@ -40,5 +40,8 @@
     "MinimumBurnInGpuPeakPercent": 90,
     "MaximumWheaEvents": 0,
     "MaximumMemoryVerificationErrors": 0
+  },
+  "BomPolicy": {
+    "Mode": "Advisory"
   }
 }
