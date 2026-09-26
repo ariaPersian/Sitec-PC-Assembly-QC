@@ -30,12 +30,10 @@ Assert-True ($diskCap.TargetSizeMB -eq 16384) 'NVMe MaximumSafe target-file maxi
 
 $gpuPlan=Get-SitecGraphicsBurnInPlan -Settings $ctx.Settings.BurnIn
 Assert-True ($gpuPlan.CoverageMode -eq 'MaximumSafe') 'GPU plan must use MaximumSafe mode.'
-Assert-True ($gpuPlan.NormalWindows -ge 48) 'GPU MaximumSafe normal-window load is too low.'
-Assert-True ($gpuPlan.GlassWindows -ge 24) 'GPU MaximumSafe glass-window load is too low.'
+Assert-True ($gpuPlan.WorkloadMode -eq 'Direct3D-ALU') 'GPU MaximumSafe plan must use the Direct3D ALU workload.'
 Assert-True ($gpuPlan.DesktopWidth -ge 1920 -and $gpuPlan.DesktopHeight -ge 1080) 'GPU MaximumSafe workload must be at least 1080p.'
-Assert-True ([bool]$gpuPlan.NoLock) 'GPU MaximumSafe plan must be fill-bound via -nolock.'
-Assert-True ([bool]$gpuPlan.Offscreen) 'GPU MaximumSafe plan must support off-screen execution.'
-Assert-True ($gpuPlan.TargetPeakPercent -ge 80) 'GPU target peak must be at least 80 percent.'
+Assert-True ($gpuPlan.TargetAveragePercent -ge 70) 'GPU target average must be at least 70 percent.'
+Assert-True ($gpuPlan.TargetPeakPercent -ge 90) 'GPU target peak must be at least 90 percent.'
 
 $benchmark=[pscustomobject]@{
     Selection=@('CPU','Disk','Graphics')
@@ -57,7 +55,7 @@ $benchmark=[pscustomobject]@{
             CPU=[pscustomobject]@{Average=95;Peak=100}
             Memory=[pscustomobject]@{Average=20;Peak=25}
             Disk=[pscustomobject]@{Average=92;Peak=100}
-            GPU=[pscustomobject]@{Average=55;Peak=85}
+            GPU=[pscustomobject]@{Average=78;Peak=96}
         }
     }
     Stress=$null
@@ -96,12 +94,12 @@ $benchmark.BurnIn.Utilization.Disk.Average=92
 $benchmark.BurnIn.Utilization.GPU.Peak=50
 $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
 Assert-True ($result.Status -eq 'FAIL') 'Low GPU peak utilization did not fail QC.'
-$benchmark.BurnIn.Utilization.GPU.Peak=85
+$benchmark.BurnIn.Utilization.GPU.Peak=96
 
 $source=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZ-ProductionBurnInBounded.ps1') -Raw -Encoding UTF8
 Assert-True ($source -match '-Sh') 'NVMe burn-in lost uncached/write-through DiskSpd mode.'
 Assert-True ($source -match '-w0') 'NVMe sustained burn-in must remain read-only.'
-Assert-True ($source -match '-nolock') 'GPU workload lost fill-bound WinSAT mode.'
-Assert-True ($source -match '-nodisp') 'GPU workload lost off-screen WinSAT mode.'
+Assert-True ($source -match 'd3d -aname ALU') 'GPU workload lost Direct3D ALU maximum-load mode.'
+Assert-True ($source -match '-disp off') 'GPU Direct3D workload must remain off-screen.'
 
 Write-Host 'MaximumSafe all-component coverage tests passed.' -ForegroundColor Green
