@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$')][string]$AssetId,
-    [string]$ProfileId='B760-14700K-990PRO',
+    [string]$ProfileId='B760-13700K-64GB-990PRO',
     [string]$Operator=$env:USERNAME,
     [string]$CaseModel='',
     [string]$PsuModel='',
