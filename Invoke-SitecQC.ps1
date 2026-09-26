@@ -12,9 +12,17 @@ param(
     [string]$Seal1='',
     [string]$Seal2='',
     [string]$DataRoot='',
+    [string]$BenchmarkComponents='CPU,Memory,Disk,Graphics',
     [switch]$ContinueBenchmarkOnBomFailure
 )
 $ErrorActionPreference='Stop'
+$allowedBenchmarkComponents=@('CPU','Memory','Disk','Graphics')
+$selectedBenchmarkComponents=@($BenchmarkComponents -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$invalidBenchmarkComponents=@($selectedBenchmarkComponents | Where-Object { $_ -notin $allowedBenchmarkComponents })
+if ($invalidBenchmarkComponents.Count -gt 0) { throw ('Invalid benchmark component(s): '+($invalidBenchmarkComponents -join ', ')) }
+$selectedBenchmarkComponents=@($allowedBenchmarkComponents | Where-Object { $_ -in $selectedBenchmarkComponents })
+if ($selectedBenchmarkComponents.Count -eq 0) { throw 'At least one benchmark component must be selected.' }
+$env:SITECQC_BENCHMARK_COMPONENTS=$selectedBenchmarkComponents -join ','
 $root=Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
 $context=Get-SitecContext -DataRoot $DataRoot
@@ -88,6 +96,7 @@ try {
     if ($bom.Status -eq 'PASS' -or $ContinueBenchmarkOnBomFailure) {
         Set-WorkerStatus 'Benchmark' 28 'Running performance qualification and concurrent full-system burn-in'
         $benchmark=Invoke-SitecBenchmarkSuite -Context $context -RunPath $runPath
+        if (-not $benchmark.PSObject.Properties['Selection']) { $benchmark | Add-Member -NotePropertyName Selection -NotePropertyValue @($selectedBenchmarkComponents) }
         Write-SitecStepResult -RunPath $runPath -Step '50-benchmark-result' -Value $benchmark | Out-Null
         $benchValidation=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
         Write-SitecStepResult -RunPath $runPath -Step '60-benchmark-validation' -Value $benchValidation | Out-Null
@@ -95,6 +104,7 @@ try {
     } else {
         Set-WorkerStatus 'Benchmark' 55 'Benchmark skipped because expected BOM validation failed'
         $benchmark=[pscustomobject]@{
+            Selection=@($selectedBenchmarkComponents)
             StartedAt=$null;FinishedAt=$null
             WinSAT=[pscustomobject]@{Available=$false;Status='SKIPPED';CpuCompressionMBps=$null;MemoryMBps=$null}
             Stress=[pscustomobject]@{Status='SKIPPED';CpuStress=[pscustomobject]@{Seconds=0;Threads=0;HashWorkMBps=0;Iterations=0};MemoryVerification=[pscustomobject]@{RequestedMB=0;VerifiedMB=0;Errors=0;Seconds=0};Sensors=@()}
@@ -118,6 +128,7 @@ try {
         Physical=$physical
         Hardware=$hardware
         BomValidation=$bom
+        BenchmarkSelection=@($selectedBenchmarkComponents)
         Benchmark=$benchmark
         BenchmarkValidation=$benchValidation
         DuplicateSerials=$duplicates
