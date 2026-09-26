@@ -159,6 +159,9 @@ function New-SitecCustomerReport {
         if (-not [bool]$stress.TimedOut) {
             if ($selection -contains 'CPU') {
                 $burnPairs += [pscustomobject]@{Label='CPU duty / threads';Value=("{0}% / {1}" -f $stress.CpuStress.DutyPercent,$stress.CpuStress.Threads)}
+                if($stress.CpuStress.PSObject.Properties['CoverageMode']){
+                    $burnPairs += [pscustomobject]@{Label='CPU mode / thread coverage';Value=("{0} / {1}%" -f $stress.CpuStress.CoverageMode,$stress.CpuStress.ThreadCoveragePercent)}
+                }
             }
             if ($selection -contains 'Memory') {
                 $requestedMB=if($stress.MemoryVerification.PSObject.Properties['RequestedMB']){$stress.MemoryVerification.RequestedMB}else{$stress.MemoryVerification.AllocatedMB}
@@ -176,9 +179,17 @@ function New-SitecCustomerReport {
             }
             if ($selection -contains 'Disk') {
                 $burnPairs += [pscustomobject]@{Label='NVMe sustained read';Value=$(if($null -ne $stress.DiskStress.ReadMBps){"$($stress.DiskStress.ReadMBps) MB/s"}else{$stress.DiskStress.Status})}
+                if($stress.DiskStress.PSObject.Properties['CoverageMode']){
+                    $burnPairs += [pscustomobject]@{Label='NVMe mode / file / QD';Value=("{0} / {1} MB / QD{2} x {3} threads" -f $stress.DiskStress.CoverageMode,$stress.DiskStress.TargetSizeMB,$stress.DiskStress.QueueDepth,$stress.DiskStress.Threads)}
+                }
             }
             if ($selection -contains 'Graphics') {
                 $burnPairs += [pscustomobject]@{Label='Graphics workload';Value=$stress.GraphicsStress.Status}
+                if($stress.GraphicsStress.PSObject.Properties['CoverageMode']){
+                    $gpuTarget=if($stress.GraphicsStress.PSObject.Properties['TargetPeakPercent']){$stress.GraphicsStress.TargetPeakPercent}else{''}
+                    $gpuResolution=if($stress.GraphicsStress.PSObject.Properties['Resolution']){[string]$stress.GraphicsStress.Resolution}else{''}
+                    $burnPairs += [pscustomobject]@{Label='GPU mode / target';Value=("{0} / peak >= {1}% / {2}" -f $stress.GraphicsStress.CoverageMode,$gpuTarget,$gpuResolution)}
+                }
             }
             if ($stress.Utilization) {
                 if ($selection -contains 'CPU') { $burnPairs += [pscustomobject]@{Label='CPU utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.CPU.Average,$stress.Utilization.CPU.Peak)} }

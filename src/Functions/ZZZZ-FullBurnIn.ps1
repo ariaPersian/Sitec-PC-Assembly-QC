@@ -300,6 +300,97 @@ function Get-SitecBurnInMemoryTarget {
     $plan
 }
 
+function Get-SitecCpuBurnInPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][int]$LogicalProcessors,
+        [Parameter(Mandatory)]$Settings
+    )
+
+    if ($LogicalProcessors -lt 1) { throw 'Logical processor count must be at least 1.' }
+    $mode=if($Settings.PSObject.Properties['CpuCoverageMode']){[string]$Settings.CpuCoverageMode}else{'MaximumSafe'}
+    $duty=if($Settings.PSObject.Properties['CpuDutyPercent']){[int]$Settings.CpuDutyPercent}else{100}
+    $duty=[int][math]::Max(10,[math]::Min(100,$duty))
+
+    $threads=$LogicalProcessors
+    [pscustomobject]@{
+        CoverageMode=$mode
+        LogicalProcessors=$LogicalProcessors
+        Threads=$threads
+        ThreadCoveragePercent=[math]::Round(($threads/[double]$LogicalProcessors)*100,1)
+        DutyPercent=$duty
+        ExpectedPeakPercent=100
+    }
+}
+
+function Get-SitecDiskBurnInPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][long]$FreeMB,
+        [Parameter(Mandatory)]$Settings
+    )
+
+    if ($FreeMB -lt 1024) { throw "Insufficient free space for storage burn-in: $FreeMB MB." }
+    $mode=if($Settings.PSObject.Properties['DiskCoverageMode']){[string]$Settings.DiskCoverageMode}else{'Fixed'}
+    $reserveMB=if($Settings.PSObject.Properties['DiskReserveFreeMB']){[long]$Settings.DiskReserveFreeMB}else{20480}
+    $minMB=if($Settings.PSObject.Properties['DiskTargetSizeMinimumMB']){[long]$Settings.DiskTargetSizeMinimumMB}else{4096}
+    $maxMB=if($Settings.PSObject.Properties['DiskTargetSizeMaximumMB']){[long]$Settings.DiskTargetSizeMaximumMB}else{16384}
+    $percent=if($Settings.PSObject.Properties['DiskTargetSizePercentOfFree']){[double]$Settings.DiskTargetSizePercentOfFree}else{2.0}
+    if($minMB -lt 1024){$minMB=1024}
+    if($maxMB -lt $minMB){$maxMB=$minMB}
+    if($reserveMB -lt 1024){$reserveMB=1024}
+    if($percent -le 0 -or $percent -gt 25){throw "DiskTargetSizePercentOfFree must be >0 and <=25; actual=$percent."}
+
+    $safeFreeMB=[long][math]::Max(0,$FreeMB-$reserveMB)
+    if($safeFreeMB -lt 1024){throw "Insufficient safe free space for storage burn-in after reserve: free=$FreeMB MB reserve=$reserveMB MB."}
+
+    if($mode -eq 'MaximumSafe'){
+        $desired=[long][math]::Floor($FreeMB*($percent/100.0))
+        $target=[long][math]::Max($minMB,[math]::Min($maxMB,$desired))
+        $target=[long][math]::Min($target,$safeFreeMB)
+    } else {
+        $target=if($Settings.PSObject.Properties['DiskTargetSizeMB']){[long]$Settings.DiskTargetSizeMB}else{$minMB}
+        $target=[long][math]::Min([math]::Max(1024,$target),$safeFreeMB)
+    }
+
+    if($target -lt 1024){throw "Calculated storage target is too small: $target MB."}
+    $block=if($Settings.PSObject.Properties['DiskBlockSizeKB']){[int]$Settings.DiskBlockSizeKB}else{64}
+    $queue=if($Settings.PSObject.Properties['DiskQueueDepth']){[int]$Settings.DiskQueueDepth}else{32}
+    $threads=if($Settings.PSObject.Properties['DiskThreads']){[int]$Settings.DiskThreads}else{4}
+
+    [pscustomobject]@{
+        CoverageMode=$mode
+        FreeBeforeMB=$FreeMB
+        ReserveFreeMB=$reserveMB
+        SafeFreeMB=$safeFreeMB
+        TargetSizeMB=[int]$target
+        TargetSizePercentOfFree=$percent
+        BlockSizeKB=[int][math]::Max(4,$block)
+        QueueDepth=[int][math]::Max(1,$queue)
+        Threads=[int][math]::Max(1,$threads)
+        WritePercent=0
+        CacheMode='UncachedWriteThrough'
+    }
+}
+
+function Get-SitecGraphicsBurnInPlan {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Settings)
+
+    [pscustomobject]@{
+        CoverageMode=if($Settings.PSObject.Properties['GraphicsCoverageMode']){[string]$Settings.GraphicsCoverageMode}else{'MaximumSafe'}
+        NormalWindows=if($Settings.PSObject.Properties['GraphicsNormalWindows']){[int]$Settings.GraphicsNormalWindows}else{48}
+        GlassWindows=if($Settings.PSObject.Properties['GraphicsGlassWindows']){[int]$Settings.GraphicsGlassWindows}else{24}
+        DesktopWidth=if($Settings.PSObject.Properties['GraphicsDesktopWidth']){[int]$Settings.GraphicsDesktopWidth}else{1920}
+        DesktopHeight=if($Settings.PSObject.Properties['GraphicsDesktopHeight']){[int]$Settings.GraphicsDesktopHeight}else{1080}
+        WindowWidth=if($Settings.PSObject.Properties['GraphicsWindowWidth']){[int]$Settings.GraphicsWindowWidth}else{1600}
+        WindowHeight=if($Settings.PSObject.Properties['GraphicsWindowHeight']){[int]$Settings.GraphicsWindowHeight}else{900}
+        Offscreen=if($Settings.PSObject.Properties['GraphicsOffscreen']){[bool]$Settings.GraphicsOffscreen}else{$true}
+        NoLock=if($Settings.PSObject.Properties['GraphicsNoLock']){[bool]$Settings.GraphicsNoLock}else{$true}
+        TargetPeakPercent=if($Settings.PSObject.Properties['GraphicsTargetPeakPercent']){[double]$Settings.GraphicsTargetPeakPercent}else{80}
+    }
+}
+
 function Get-SitecLoadSnapshot {
     [CmdletBinding()]
     param()

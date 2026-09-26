@@ -42,18 +42,26 @@ function Invoke-SitecFullSystemBurnIn {
 
     Initialize-SitecBurnInType
     $duration=[math]::Max(30,[int]$cfg.DurationSeconds)
-    $cpuDuty=[int]$cfg.CpuDutyPercent
+    $cpuPlan=if($cpuEnabled){Get-SitecCpuBurnInPlan -LogicalProcessors ([Environment]::ProcessorCount) -Settings $cfg}else{[pscustomobject]@{CoverageMode='None';LogicalProcessors=[Environment]::ProcessorCount;Threads=0;ThreadCoveragePercent=0;DutyPercent=0;ExpectedPeakPercent=0}}
+    $cpuDuty=[int]$cpuPlan.DutyPercent
     $memoryWorkers=[int]$cfg.MemoryWorkers
     $sampleSeconds=[math]::Max([int]$Context.Settings.Sensors.SampleIntervalSeconds,2)
     $finalizeGrace=20
     if ($cfg.PSObject.Properties['FinalizeGraceSeconds']) { $finalizeGrace=[math]::Max(10,[int]$cfg.FinalizeGraceSeconds) }
-    $memoryTarget=if($memoryEnabled){Get-SitecBurnInMemoryTarget -Context $Context}else{[pscustomobject]@{AllocationTargetMB=0;TargetPercent=0}}
+    $memoryTarget=if($memoryEnabled){Get-SitecBurnInMemoryTarget -Context $Context}else{[pscustomobject]@{CoverageMode='None';AllocationTargetMB=0;TargetPercent=0;ExpectedUsagePercent=0;ReserveMB=0;SafeCoverageTargetMB=0}}
+    $graphicsPlan=if($graphicsEnabled){Get-SitecGraphicsBurnInPlan -Settings $cfg}else{[pscustomobject]@{CoverageMode='None';NormalWindows=0;GlassWindows=0;DesktopWidth=0;DesktopHeight=0;WindowWidth=0;WindowHeight=0;Offscreen=$false;NoLock=$false;TargetPeakPercent=0}}
 
     $benchDir=Join-Path $RunPath 'benchmark\burnin'
     New-Item -ItemType Directory -Path $benchDir -Force | Out-Null
 
     $drive=[string]$Context.Settings.DiskSpd.TargetDrive
     if ([string]::IsNullOrWhiteSpace($drive)) { $drive='C:' }
+    $diskPlan=[pscustomobject]@{CoverageMode='None';FreeBeforeMB=0;ReserveFreeMB=0;SafeFreeMB=0;TargetSizeMB=0;TargetSizePercentOfFree=0;BlockSizeKB=0;QueueDepth=0;Threads=0;WritePercent=0;CacheMode='None'}
+    if($diskEnabled){
+        $driveInfo=[System.IO.DriveInfo]::new($drive+'\')
+        $freeMB=[long][math]::Floor($driveInfo.AvailableFreeSpace/1MB)
+        $diskPlan=Get-SitecDiskBurnInPlan -FreeMB $freeMB -Settings $cfg
+    }
     $testDir=Join-Path ($drive+'\') 'SitecQC-Temp'
     # This directory belongs exclusively to SitecQC. Remove leftovers from interrupted runs.
     Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -69,16 +77,17 @@ function Invoke-SitecFullSystemBurnIn {
     try {
         $selected=@()
         if($cpuEnabled){$selected+='CPU'};if($memoryEnabled){$selected+='RAM'};if($diskEnabled){$selected+='NVMe'};if($graphicsEnabled){$selected+='Graphics'}
-        Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'FullSystem' -Status 'START' -Message ("Starting {0}s bounded burn-in for [{1}]; finalization grace {2}s." -f $duration,($selected -join ', '),$finalizeGrace) -Data $memoryTarget
+        $coveragePlans=[pscustomobject]@{CPU=$cpuPlan;Memory=$memoryTarget;Disk=$diskPlan;Graphics=$graphicsPlan}
+        Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'FullSystem' -Status 'START' -Message ("Starting {0}s MaximumSafe burn-in for [{1}]; finalization grace {2}s." -f $duration,($selected -join ', '),$finalizeGrace) -Data $coveragePlans
 
         if ($diskEnabled) {
             $diskExe=Join-Path $Context.ProjectRoot ([string]$Context.Settings.DiskSpd.ExeRelativePath)
             if (Test-Path -LiteralPath $diskExe) {
                 New-Item -ItemType Directory -Path $testDir -Force | Out-Null
                 $diskTarget=Join-Path $testDir 'diskspd-burnin.dat'
-                $size=[int]$cfg.DiskTargetSizeMB;$block=[int]$cfg.DiskBlockSizeKB;$queue=[int]$cfg.DiskQueueDepth;$threads=[int]$cfg.DiskThreads
+                $size=[int]$diskPlan.TargetSizeMB;$block=[int]$diskPlan.BlockSizeKB;$queue=[int]$diskPlan.QueueDepth;$threads=[int]$diskPlan.Threads
                 $args="-c${size}M -b${block}K -r -o$queue -t$threads -W5 -d$duration -C1 -Sh -L -w0 -Rxml `"$diskTarget`""
-                Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'NVMe' -Status 'START' -Message 'Starting sustained read-only DiskSpd burn-in.' -Data ([pscustomobject]@{Command=$diskExe;Arguments=$args})
+                Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'NVMe' -Status 'START' -Message ("Starting MaximumSafe uncached read-only DiskSpd burn-in: target={0} MB, block={1} KB, queue/thread={2}, threads={3}." -f $size,$block,$queue,$threads) -Data ([pscustomobject]@{Command=$diskExe;Arguments=$args;Plan=$diskPlan})
                 $diskProcess=Start-SitecBurnInProcess -FilePath $diskExe -Arguments $args -StdOutPath $diskOut -StdErrPath $diskErr
                 $diskStatus='RUNNING'
             } else {
@@ -87,9 +96,11 @@ function Invoke-SitecFullSystemBurnIn {
         }
 
         if ($graphicsEnabled -and (Get-Command winsat.exe -ErrorAction SilentlyContinue)) {
-            $normal=[int]$cfg.GraphicsNormalWindows;$glass=[int]$cfg.GraphicsGlassWindows
-            $gpuArgs="dwm -normalw $normal -glassw $glass -time $duration -v -fullscreen"
-            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Graphics' -Status 'START' -Message 'Starting WinSAT DWM graphics workload.' -Data ([pscustomobject]@{Command='winsat.exe';Arguments=$gpuArgs})
+            $normal=[int]$graphicsPlan.NormalWindows;$glass=[int]$graphicsPlan.GlassWindows
+            $gpuArgs="dwm -normalw $normal -glassw $glass -time $duration -width $($graphicsPlan.DesktopWidth) -height $($graphicsPlan.DesktopHeight) -winwidth $($graphicsPlan.WindowWidth) -winheight $($graphicsPlan.WindowHeight) -v"
+            if($graphicsPlan.NoLock){$gpuArgs+=' -nolock'}
+            if($graphicsPlan.Offscreen){$gpuArgs+=' -nodisp'}else{$gpuArgs+=' -fullscreen'}
+            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Graphics' -Status 'START' -Message ("Starting MaximumSafe WinSAT DWM graphics workload: {0} normal + {1} glass windows at {2}x{3}; target peak {4}%." -f $normal,$glass,$graphicsPlan.DesktopWidth,$graphicsPlan.DesktopHeight,$graphicsPlan.TargetPeakPercent) -Data ([pscustomobject]@{Command='winsat.exe';Arguments=$gpuArgs;Plan=$graphicsPlan})
             $gpuProcess=Start-SitecBurnInProcess -FilePath 'winsat.exe' -Arguments $gpuArgs -StdOutPath $gpuOut -StdErrPath $gpuErr
             $gpuStatus='RUNNING'
         } elseif ($graphicsEnabled) {
@@ -99,8 +110,8 @@ function Invoke-SitecFullSystemBurnIn {
         $started=Get-Date
         $cpuTask=$null;$memoryTask=$null
         if($cpuEnabled){
-            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'CPU' -Status 'START' -Message ("Starting CPU worker on {0} logical processors at {1}% duty." -f [Environment]::ProcessorCount,$cpuDuty)
-            $cpuTask=[SitecQcBurnInV2]::CpuAsync($duration,[Environment]::ProcessorCount,$cpuDuty)
+            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'CPU' -Status 'START' -Message ("Starting MaximumSafe CPU worker on {0}/{1} logical processors ({2}% thread coverage) at {3}% duty." -f $cpuPlan.Threads,$cpuPlan.LogicalProcessors,$cpuPlan.ThreadCoveragePercent,$cpuDuty) -Data $cpuPlan
+            $cpuTask=[SitecQcBurnInV2]::CpuAsync($duration,[int]$cpuPlan.Threads,$cpuDuty)
         }
         if($memoryEnabled){
             Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status 'START' -Message ("Starting RAM write/verify: mode={0}; target={1} MB; reserve={2} MB; expected system usage={3}%; workers={4}." -f $memoryTarget.CoverageMode,$memoryTarget.AllocationTargetMB,$memoryTarget.ReserveMB,$memoryTarget.ExpectedUsagePercent,$memoryWorkers) -Data $memoryTarget
@@ -201,7 +212,7 @@ function Invoke-SitecFullSystemBurnIn {
         if ($requiredGraphics -and $gpuStatus -ne 'PASS') { $pass=$false }
         $finished=Get-Date
 
-        $cpuResult=if($cpu){[pscustomobject]@{Enabled=$true;Status='PASS';Seconds=[math]::Round($cpu.Seconds,1);Threads=$cpu.Threads;DutyPercent=$cpu.DutyPercent;HashWorkMBps=[math]::Round($cpu.WorkUnitsPerSecond,2);WorkUnitsPerSecond=[math]::Round($cpu.WorkUnitsPerSecond,2);Iterations=$cpu.Iterations}}elseif($cpuEnabled){[pscustomobject]@{Enabled=$true;Status='FAIL';Seconds=0;Threads=[Environment]::ProcessorCount;DutyPercent=$cpuDuty;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}}else{[pscustomobject]@{Enabled=$false;Status='SKIPPED';Seconds=0;Threads=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}}
+        $cpuResult=if($cpu){[pscustomobject]@{Enabled=$true;Status='PASS';CoverageMode=$cpuPlan.CoverageMode;Seconds=[math]::Round($cpu.Seconds,1);LogicalProcessors=$cpuPlan.LogicalProcessors;Threads=$cpu.Threads;ThreadCoveragePercent=[math]::Round(($cpu.Threads/[double]$cpuPlan.LogicalProcessors)*100,1);DutyPercent=$cpu.DutyPercent;HashWorkMBps=[math]::Round($cpu.WorkUnitsPerSecond,2);WorkUnitsPerSecond=[math]::Round($cpu.WorkUnitsPerSecond,2);Iterations=$cpu.Iterations}}elseif($cpuEnabled){[pscustomobject]@{Enabled=$true;Status='FAIL';CoverageMode=$cpuPlan.CoverageMode;Seconds=0;LogicalProcessors=$cpuPlan.LogicalProcessors;Threads=$cpuPlan.Threads;ThreadCoveragePercent=$cpuPlan.ThreadCoveragePercent;DutyPercent=$cpuDuty;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}}else{[pscustomobject]@{Enabled=$false;Status='SKIPPED';CoverageMode='None';Seconds=0;LogicalProcessors=[Environment]::ProcessorCount;Threads=0;ThreadCoveragePercent=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}}
         $memoryCoveragePercent=0.0
         if($memoryEnabled -and $memory -and [double]$memoryTarget.SafeCoverageTargetMB -gt 0){
             $memoryCoveragePercent=[math]::Round(([double]$memory.AllocatedMB/[double]$memoryTarget.SafeCoverageTargetMB)*100,1)
@@ -212,8 +223,8 @@ function Invoke-SitecFullSystemBurnIn {
             Status=if($pass){'PASS'}else{'FAIL'};Required=$true;TimedOut=$false;Error='';StartedAt=$started.ToString('o');FinishedAt=$finished.ToString('o');DurationSeconds=$duration;ActualSeconds=[math]::Round(($finished-$started).TotalSeconds,1)
             Selection=@($selected)
             CpuStress=$cpuResult;MemoryVerification=$memResult
-            DiskStress=[pscustomobject]@{Enabled=$diskEnabled;Status=$diskStatus;ProcessExitCode=$diskExit;ReadMBps=$(if($diskMetrics){$diskMetrics.ReadMBps}else{$null});ReadIOPS=$(if($diskMetrics){$diskMetrics.ReadIOPS}else{$null});AverageReadLatencyMs=$(if($diskMetrics){$diskMetrics.AverageReadLatencyMs}else{$null});BlockSizeKB=[int]$cfg.DiskBlockSizeKB;QueueDepth=[int]$cfg.DiskQueueDepth;Threads=[int]$cfg.DiskThreads;WritePercent=0;ForcedStop=$forcedDiskStop;Error=$diskError;XmlPath=$diskOut;StdErrPath=$diskErr}
-            GraphicsStress=[pscustomobject]@{Enabled=$graphicsEnabled;Required=$requiredGraphics;Status=$gpuStatus;ProcessExitCode=$gpuExit;Engine='WinSAT DWM composition workload';ForcedStop=$forcedGpuStop;Error=$gpuError;OutputPath=$gpuOut;StdErrPath=$gpuErr}
+            DiskStress=[pscustomobject]@{Enabled=$diskEnabled;Status=$diskStatus;CoverageMode=$diskPlan.CoverageMode;ProcessExitCode=$diskExit;ReadMBps=$(if($diskMetrics){$diskMetrics.ReadMBps}else{$null});ReadIOPS=$(if($diskMetrics){$diskMetrics.ReadIOPS}else{$null});AverageReadLatencyMs=$(if($diskMetrics){$diskMetrics.AverageReadLatencyMs}else{$null});TargetSizeMB=$diskPlan.TargetSizeMB;FreeBeforeMB=$diskPlan.FreeBeforeMB;ReserveFreeMB=$diskPlan.ReserveFreeMB;BlockSizeKB=$diskPlan.BlockSizeKB;QueueDepth=$diskPlan.QueueDepth;Threads=$diskPlan.Threads;WritePercent=0;CacheMode=$diskPlan.CacheMode;ForcedStop=$forcedDiskStop;Error=$diskError;XmlPath=$diskOut;StdErrPath=$diskErr}
+            GraphicsStress=[pscustomobject]@{Enabled=$graphicsEnabled;Required=$requiredGraphics;Status=$gpuStatus;CoverageMode=$graphicsPlan.CoverageMode;TargetPeakPercent=$graphicsPlan.TargetPeakPercent;NormalWindows=$graphicsPlan.NormalWindows;GlassWindows=$graphicsPlan.GlassWindows;Resolution=("$($graphicsPlan.DesktopWidth)x$($graphicsPlan.DesktopHeight)");Offscreen=$graphicsPlan.Offscreen;NoLock=$graphicsPlan.NoLock;ProcessExitCode=$gpuExit;Engine='WinSAT DWM composition workload';ForcedStop=$forcedGpuStop;Error=$gpuError;OutputPath=$gpuOut;StdErrPath=$gpuErr}
             Utilization=$utilization;Sensors=$sensorSummary;LoadSamples=@($loadSamples)
         }
         Write-SitecStepResult -RunPath $RunPath -Step '40-full-system-burnin' -Value $result | Out-Null

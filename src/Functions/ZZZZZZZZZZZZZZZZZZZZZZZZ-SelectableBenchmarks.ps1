@@ -171,6 +171,18 @@ function Test-SitecBenchmarkResults {
     if ($burn) {
         $checks += New-SitecCheck 'Selected hardware burn-in' 'PASS' ([string]$burn.Status) ([string]$burn.Status -eq 'PASS')
 
+        if (Selected 'CPU') {
+            if ($burn.PSObject.Properties['CpuStress'] -and $burn.CpuStress) {
+                if ($burn.CpuStress.PSObject.Properties['ThreadCoveragePercent'] -and $t.PSObject.Properties['MinimumBurnInCpuThreadCoveragePercent']) {
+                    $threadCoverage=[double]$burn.CpuStress.ThreadCoveragePercent
+                    $checks += New-SitecCheck 'CPU logical processor coverage' (">= $($t.MinimumBurnInCpuThreadCoveragePercent)%") ("$threadCoverage%") ($threadCoverage -ge [double]$t.MinimumBurnInCpuThreadCoveragePercent)
+                }
+                if ($burn.CpuStress.PSObject.Properties['DutyPercent']) {
+                    $checks += New-SitecCheck 'CPU requested duty cycle' '100%' ("$($burn.CpuStress.DutyPercent)%") ([int]$burn.CpuStress.DutyPercent -ge 100)
+                }
+            }
+        }
+
         if (Selected 'Memory') {
             $checks += New-SitecCheck 'Memory verification errors' ("<= $($t.MaximumMemoryVerificationErrors)") ([string]$burn.MemoryVerification.Errors) ([long]$burn.MemoryVerification.Errors -le [long]$t.MaximumMemoryVerificationErrors)
 
@@ -182,6 +194,9 @@ function Test-SitecBenchmarkResults {
 
         if ((Selected 'Disk') -and $burn.PSObject.Properties['DiskStress'] -and $burn.DiskStress.Enabled) {
             $checks += New-SitecCheck 'Burn-in NVMe workload' 'PASS' ([string]$burn.DiskStress.Status) ([string]$burn.DiskStress.Status -eq 'PASS')
+            if ($burn.DiskStress.PSObject.Properties['CoverageMode']) {
+                $checks += New-SitecCheck 'NVMe burn-in mode' 'MaximumSafe' ([string]$burn.DiskStress.CoverageMode) ([string]$burn.DiskStress.CoverageMode -eq 'MaximumSafe')
+            }
             if ($null -ne $burn.DiskStress.ReadMBps -and $t.PSObject.Properties['MinimumBurnInDiskReadMBps']) {
                 $checks += New-SitecCheck 'Burn-in NVMe throughput' (">= $($t.MinimumBurnInDiskReadMBps) MB/s") ("$($burn.DiskStress.ReadMBps) MB/s") ([double]$burn.DiskStress.ReadMBps -ge [double]$t.MinimumBurnInDiskReadMBps)
             }
@@ -190,11 +205,21 @@ function Test-SitecBenchmarkResults {
         if ((Selected 'Graphics') -and $burn.PSObject.Properties['GraphicsStress'] -and $burn.GraphicsStress.Enabled) {
             $severity=if($burn.GraphicsStress.Required){'Error'}else{'Warning'}
             $checks += New-SitecCheck 'Graphics burn-in workload' 'PASS' ([string]$burn.GraphicsStress.Status) ([string]$burn.GraphicsStress.Status -eq 'PASS') $severity
+            if ($burn.GraphicsStress.PSObject.Properties['CoverageMode']) {
+                $checks += New-SitecCheck 'Graphics burn-in mode' 'MaximumSafe' ([string]$burn.GraphicsStress.CoverageMode) ([string]$burn.GraphicsStress.CoverageMode -eq 'MaximumSafe') $severity
+            }
         }
 
         if ($burn.PSObject.Properties['Utilization']) {
-            if ((Selected 'CPU') -and $null -ne $burn.Utilization.CPU.Average -and $t.PSObject.Properties['MinimumBurnInCpuAveragePercent']) {
-                $checks += New-SitecCheck 'CPU average load during burn-in' (">= $($t.MinimumBurnInCpuAveragePercent)%") ("$($burn.Utilization.CPU.Average)%") ([double]$burn.Utilization.CPU.Average -ge [double]$t.MinimumBurnInCpuAveragePercent)
+            if (Selected 'CPU') {
+                if ($null -ne $burn.Utilization.CPU.Average -and $t.PSObject.Properties['MinimumBurnInCpuAveragePercent']) {
+                    $checks += New-SitecCheck 'CPU average load during burn-in' (">= $($t.MinimumBurnInCpuAveragePercent)%") ("$($burn.Utilization.CPU.Average)%") ([double]$burn.Utilization.CPU.Average -ge [double]$t.MinimumBurnInCpuAveragePercent)
+                } else {
+                    $checks += New-SitecCheck 'CPU utilization telemetry' 'Available' 'Unavailable' $false
+                }
+                if ($null -ne $burn.Utilization.CPU.Peak -and $t.PSObject.Properties['MinimumBurnInCpuPeakPercent']) {
+                    $checks += New-SitecCheck 'CPU peak load during burn-in' (">= $($t.MinimumBurnInCpuPeakPercent)%") ("$($burn.Utilization.CPU.Peak)%") ([double]$burn.Utilization.CPU.Peak -ge [double]$t.MinimumBurnInCpuPeakPercent)
+                }
             }
             if ((Selected 'Memory') -and $null -ne $burn.Utilization.Memory.Peak) {
                 if ($burn.MemoryVerification.PSObject.Properties['ExpectedSystemUsagePercent'] -and $null -ne $burn.MemoryVerification.ExpectedSystemUsagePercent -and $t.PSObject.Properties['MaximumBurnInMemoryPeakShortfallPercent']) {
@@ -206,8 +231,26 @@ function Test-SitecBenchmarkResults {
                     $checks += New-SitecCheck 'Peak RAM use during burn-in' (">= $($t.MinimumBurnInMemoryPeakPercent)%") ("$($burn.Utilization.Memory.Peak)%") ([double]$burn.Utilization.Memory.Peak -ge [double]$t.MinimumBurnInMemoryPeakPercent)
                 }
             }
-            if ((Selected 'Graphics') -and $null -ne $burn.Utilization.GPU.Peak -and $t.PSObject.Properties['MinimumBurnInGpuPeakPercent']) {
-                $checks += New-SitecCheck 'GPU peak load during burn-in' (">= $($t.MinimumBurnInGpuPeakPercent)%") ("$($burn.Utilization.GPU.Peak)%") ([double]$burn.Utilization.GPU.Peak -ge [double]$t.MinimumBurnInGpuPeakPercent) 'Warning'
+            if (Selected 'Disk') {
+                if ($null -ne $burn.Utilization.Disk.Average -and $t.PSObject.Properties['MinimumBurnInDiskAverageActivePercent']) {
+                    $checks += New-SitecCheck 'NVMe average active time during burn-in' (">= $($t.MinimumBurnInDiskAverageActivePercent)%") ("$($burn.Utilization.Disk.Average)%") ([double]$burn.Utilization.Disk.Average -ge [double]$t.MinimumBurnInDiskAverageActivePercent)
+                } else {
+                    $checks += New-SitecCheck 'NVMe utilization telemetry' 'Available' 'Unavailable' $false
+                }
+                if ($null -ne $burn.Utilization.Disk.Peak -and $t.PSObject.Properties['MinimumBurnInDiskPeakActivePercent']) {
+                    $checks += New-SitecCheck 'NVMe peak active time during burn-in' (">= $($t.MinimumBurnInDiskPeakActivePercent)%") ("$($burn.Utilization.Disk.Peak)%") ([double]$burn.Utilization.Disk.Peak -ge [double]$t.MinimumBurnInDiskPeakActivePercent)
+                }
+            }
+            if (Selected 'Graphics') {
+                $gpuSeverity=if($burn.PSObject.Properties['GraphicsStress'] -and $burn.GraphicsStress.Required){'Error'}else{'Warning'}
+                if ($null -ne $burn.Utilization.GPU.Average -and $t.PSObject.Properties['MinimumBurnInGpuAveragePercent']) {
+                    $checks += New-SitecCheck 'GPU average load during burn-in' (">= $($t.MinimumBurnInGpuAveragePercent)%") ("$($burn.Utilization.GPU.Average)%") ([double]$burn.Utilization.GPU.Average -ge [double]$t.MinimumBurnInGpuAveragePercent) $gpuSeverity
+                } else {
+                    $checks += New-SitecCheck 'GPU utilization telemetry' 'Available' 'Unavailable' $false $gpuSeverity
+                }
+                if ($null -ne $burn.Utilization.GPU.Peak -and $t.PSObject.Properties['MinimumBurnInGpuPeakPercent']) {
+                    $checks += New-SitecCheck 'GPU peak load during burn-in' (">= $($t.MinimumBurnInGpuPeakPercent)%") ("$($burn.Utilization.GPU.Peak)%") ([double]$burn.Utilization.GPU.Peak -ge [double]$t.MinimumBurnInGpuPeakPercent) $gpuSeverity
+                }
             }
         }
     }
