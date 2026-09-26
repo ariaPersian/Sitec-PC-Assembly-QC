@@ -179,8 +179,13 @@ function Publish-SitecFullJson {
     }
     if($null -eq $primaryDetail){$primaryDetail=$errorDetails | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Message) } | Select-Object -First 1}
     if ($primaryDetail) { $primaryMessage=[string]$primaryDetail.Message }
+    $errorItems=@($errorDetails | Where-Object { [string]$_.Status -in @('FAIL','ERROR') -or [string]$_.Severity -eq 'ERROR' })
+    $warningItems=@($errorDetails | Where-Object { [string]$_.Status -eq 'WARNING' -or [string]$_.Severity -eq 'Warning' })
     $errorSummary=[pscustomobject][ordered]@{
-        HasErrors=([string]$run.OverallStatus -ne 'PASS' -or $errorDetails.Count -gt 0)
+        HasErrors=($errorItems.Count -gt 0 -or [string]$run.OverallStatus -in @('FAIL','ERROR'))
+        HasWarnings=($warningItems.Count -gt 0 -or [string]$run.OverallStatus -eq 'PASS_WITH_BOM_MISMATCH')
+        ErrorCount=$errorItems.Count
+        WarningCount=$warningItems.Count
         Count=$errorDetails.Count
         PrimaryMessage=$primaryMessage
         PrimaryStage=$(if($primaryDetail){[string]$primaryDetail.Stage}else{''})
