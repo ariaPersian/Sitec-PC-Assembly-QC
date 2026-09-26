@@ -103,7 +103,7 @@ function Invoke-SitecFullSystemBurnIn {
             $cpuTask=[SitecQcBurnInV2]::CpuAsync($duration,[Environment]::ProcessorCount,$cpuDuty)
         }
         if($memoryEnabled){
-            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status 'START' -Message ("Starting RAM write/verify: target {0} MB with {1} workers." -f $memoryTarget.AllocationTargetMB,$memoryWorkers)
+            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status 'START' -Message ("Starting RAM write/verify: mode={0}; target={1} MB; reserve={2} MB; expected system usage={3}%; workers={4}." -f $memoryTarget.CoverageMode,$memoryTarget.AllocationTargetMB,$memoryTarget.ReserveMB,$memoryTarget.ExpectedUsagePercent,$memoryWorkers) -Data $memoryTarget
             $memoryTask=[SitecQcBurnInV2]::MemoryAsync($duration,[int]$memoryTarget.AllocationTargetMB,$memoryWorkers)
         }
 
@@ -147,7 +147,7 @@ function Invoke-SitecFullSystemBurnIn {
             try { $cpu=$cpuTask.GetAwaiter().GetResult();$cpuOk=$true } catch { $cpuError=$_.Exception.Message }
         }
         if ($null -ne $memoryTask -and $memoryTask.IsCompleted) {
-            try { $memory=$memoryTask.GetAwaiter().GetResult();$memoryOk=($memory.Errors -eq 0) } catch { $memoryError=$_.Exception.Message }
+            try { $memory=$memoryTask.GetAwaiter().GetResult();$memoryOk=($memory.Errors -eq 0 -and $memory.BytesVerified -gt 0 -and $memory.Passes -gt 0 -and $memory.AllocatedMB -ge 128) } catch { $memoryError=$_.Exception.Message }
         }
 
         if ($cpuEnabled) {
