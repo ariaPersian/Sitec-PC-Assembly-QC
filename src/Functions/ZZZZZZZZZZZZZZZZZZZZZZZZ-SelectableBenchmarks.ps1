@@ -173,6 +173,11 @@ function Test-SitecBenchmarkResults {
 
         if (Selected 'Memory') {
             $checks += New-SitecCheck 'Memory verification errors' ("<= $($t.MaximumMemoryVerificationErrors)") ([string]$burn.MemoryVerification.Errors) ([long]$burn.MemoryVerification.Errors -le [long]$t.MaximumMemoryVerificationErrors)
+
+            if ($burn.MemoryVerification.PSObject.Properties['AllocationCoveragePercent'] -and $t.PSObject.Properties['MinimumBurnInMemoryPlanCoveragePercent']) {
+                $coverage=[double]$burn.MemoryVerification.AllocationCoveragePercent
+                $checks += New-SitecCheck 'RAM safe allocation coverage' (">= $($t.MinimumBurnInMemoryPlanCoveragePercent)%") ("$coverage%") ($coverage -ge [double]$t.MinimumBurnInMemoryPlanCoveragePercent)
+            }
         }
 
         if ((Selected 'Disk') -and $burn.PSObject.Properties['DiskStress'] -and $burn.DiskStress.Enabled) {
@@ -191,8 +196,15 @@ function Test-SitecBenchmarkResults {
             if ((Selected 'CPU') -and $null -ne $burn.Utilization.CPU.Average -and $t.PSObject.Properties['MinimumBurnInCpuAveragePercent']) {
                 $checks += New-SitecCheck 'CPU average load during burn-in' (">= $($t.MinimumBurnInCpuAveragePercent)%") ("$($burn.Utilization.CPU.Average)%") ([double]$burn.Utilization.CPU.Average -ge [double]$t.MinimumBurnInCpuAveragePercent)
             }
-            if ((Selected 'Memory') -and $null -ne $burn.Utilization.Memory.Peak -and $t.PSObject.Properties['MinimumBurnInMemoryPeakPercent']) {
-                $checks += New-SitecCheck 'Peak RAM use during burn-in' (">= $($t.MinimumBurnInMemoryPeakPercent)%") ("$($burn.Utilization.Memory.Peak)%") ([double]$burn.Utilization.Memory.Peak -ge [double]$t.MinimumBurnInMemoryPeakPercent)
+            if ((Selected 'Memory') -and $null -ne $burn.Utilization.Memory.Peak) {
+                if ($burn.MemoryVerification.PSObject.Properties['ExpectedSystemUsagePercent'] -and $null -ne $burn.MemoryVerification.ExpectedSystemUsagePercent -and $t.PSObject.Properties['MaximumBurnInMemoryPeakShortfallPercent']) {
+                    $expectedPeak=[double]$burn.MemoryVerification.ExpectedSystemUsagePercent
+                    $allowedShortfall=[double]$t.MaximumBurnInMemoryPeakShortfallPercent
+                    $requiredPeak=[math]::Max(0,[math]::Round($expectedPeak-$allowedShortfall,1))
+                    $checks += New-SitecCheck 'Peak RAM use during burn-in' (">= $requiredPeak% ($expectedPeak% planned, <= $allowedShortfall pp shortfall)") ("$($burn.Utilization.Memory.Peak)%") ([double]$burn.Utilization.Memory.Peak -ge $requiredPeak)
+                } elseif ($t.PSObject.Properties['MinimumBurnInMemoryPeakPercent']) {
+                    $checks += New-SitecCheck 'Peak RAM use during burn-in' (">= $($t.MinimumBurnInMemoryPeakPercent)%") ("$($burn.Utilization.Memory.Peak)%") ([double]$burn.Utilization.Memory.Peak -ge [double]$t.MinimumBurnInMemoryPeakPercent)
+                }
             }
             if ((Selected 'Graphics') -and $null -ne $burn.Utilization.GPU.Peak -and $t.PSObject.Properties['MinimumBurnInGpuPeakPercent']) {
                 $checks += New-SitecCheck 'GPU peak load during burn-in' (">= $($t.MinimumBurnInGpuPeakPercent)%") ("$($burn.Utilization.GPU.Peak)%") ([double]$burn.Utilization.GPU.Peak -ge [double]$t.MinimumBurnInGpuPeakPercent) 'Warning'

@@ -102,6 +102,7 @@ public static class SitecQcBurnInV2 {
             if (workers < 1) workers = 1;
             if (workers > 8) workers = 8;
 
+            var sw = Stopwatch.StartNew();
             const int chunkMB = 32;
             var chunks = new List<ulong[]>();
             int remaining = targetMB;
@@ -121,7 +122,6 @@ public static class SitecQcBurnInV2 {
             if (allocatedMB < 128)
                 throw new OutOfMemoryException("Unable to reserve enough physical memory for the burn-in workload.");
 
-            var sw = Stopwatch.StartNew();
             long errors = 0;
             long verified = 0;
             int passes = 0;
@@ -185,32 +185,81 @@ function Get-SitecBurnInMemoryPlan {
     if ($TotalMB -lt 128) { throw "Installed/visible memory is too small for RAM burn-in: $TotalMB MB." }
     $free=[int][math]::Max(0,[math]::Min($TotalMB,$FreeMB))
     $used=[int][math]::Max(0,$TotalMB-$free)
+    $minMB=[int][math]::Max(128,[int]$Settings.MemoryMinimumMB)
 
+    $coverageMode='TargetPercent'
+    if ($Settings.PSObject.Properties['MemoryCoverageMode'] -and -not [string]::IsNullOrWhiteSpace([string]$Settings.MemoryCoverageMode)) {
+        $coverageMode=[string]$Settings.MemoryCoverageMode
+    }
+
+    $configuredMaxMB=0
+    if ($Settings.PSObject.Properties['MemoryMaximumMB']) { $configuredMaxMB=[int]$Settings.MemoryMaximumMB }
+
+    if ($coverageMode -eq 'MaximumSafe') {
+        $reservePercent=5.0
+        if ($Settings.PSObject.Properties['MemoryReservePercent']) { $reservePercent=[double]$Settings.MemoryReservePercent }
+        if ($reservePercent -lt 1 -or $reservePercent -gt 25) {
+            throw "BurnIn.MemoryReservePercent must be between 1 and 25 in MaximumSafe mode; actual=$reservePercent."
+        }
+
+        $reserveMinMB=2048
+        if ($Settings.PSObject.Properties['MemoryReserveMinimumMB']) { $reserveMinMB=[int]$Settings.MemoryReserveMinimumMB }
+        $reserveMaxMB=4096
+        if ($Settings.PSObject.Properties['MemoryReserveMaximumMB']) { $reserveMaxMB=[int]$Settings.MemoryReserveMaximumMB }
+        if ($reserveMinMB -lt 512) { $reserveMinMB=512 }
+        if ($reserveMaxMB -lt $reserveMinMB) { $reserveMaxMB=$reserveMinMB }
+
+        $percentReserve=[int][math]::Ceiling($TotalMB*($reservePercent/100.0))
+        $reserveMB=[int][math]::Max($reserveMinMB,[math]::Min($reserveMaxMB,$percentReserve))
+        $safeFreeMB=[int][math]::Max(0,$free-$reserveMB)
+
+        # MaximumSafe intentionally consumes nearly all currently free physical
+        # memory while leaving a dynamic 2-4 GB class reserve for Windows,
+        # drivers and SitecQC itself. This is the production memory-coverage
+        # mode. Positive MemoryMaximumMB remains an optional hard cap.
+        $targetMB=$safeFreeMB
+        if ($configuredMaxMB -gt 0) {
+            $targetMB=[int][math]::Min($targetMB,$configuredMaxMB)
+        }
+        if ($targetMB -lt $minMB -and $safeFreeMB -ge 128) {
+            $targetMB=[int][math]::Min($minMB,$safeFreeMB)
+            if ($configuredMaxMB -gt 0) { $targetMB=[int][math]::Min($targetMB,$configuredMaxMB) }
+        }
+
+        $expectedUsedMB=[int][math]::Min($TotalMB,$used+$targetMB)
+        $expectedPercent=[math]::Round(($expectedUsedMB/[double]$TotalMB)*100,1)
+        $safeCoverageTargetMB=$safeFreeMB
+        if ($configuredMaxMB -gt 0) { $safeCoverageTargetMB=[int][math]::Min($safeCoverageTargetMB,$configuredMaxMB) }
+
+        return [pscustomobject]@{
+            TotalMB=$TotalMB
+            FreeBeforeMB=$free
+            UsedBeforeMB=$used
+            CoverageMode='MaximumSafe'
+            TargetPercent=$expectedPercent
+            DesiredUsedMB=$expectedUsedMB
+            AllocationTargetMB=$targetMB
+            SafeCoverageTargetMB=$safeCoverageTargetMB
+            ReserveMB=$reserveMB
+            ReservePercent=$reservePercent
+            SafeFreeMB=$safeFreeMB
+            MemoryMaximumMB=$configuredMaxMB
+            MaximumMode=$(if($configuredMaxMB -gt 0){'MaximumSafe+FixedCap'}else{'MaximumSafe'})
+            ExpectedUsagePercent=$expectedPercent
+        }
+    }
+
+    # Backward-compatible target-percentage mode for custom deployments.
     $targetPercent=[double]$Settings.MemoryTargetPercent
     if ($targetPercent -le 0 -or $targetPercent -ge 95) {
         throw "BurnIn.MemoryTargetPercent must be greater than 0 and lower than 95; actual=$targetPercent."
     }
-
     $reserveMB=[int][math]::Max(0,[int]$Settings.MemoryReserveMB)
-    $minMB=[int][math]::Max(128,[int]$Settings.MemoryMinimumMB)
-    $configuredMaxMB=0
-    if ($Settings.PSObject.Properties['MemoryMaximumMB']) { $configuredMaxMB=[int]$Settings.MemoryMaximumMB }
-
-    # MemoryMaximumMB=0 means AUTO: do not impose a fixed capacity cap.
-    # The workload instead grows to the configured whole-system usage target
-    # while respecting free-memory reserve. Positive values retain the legacy
-    # fixed-cap behavior for custom deployments.
     $desiredUsedMB=[int][math]::Floor($TotalMB*($targetPercent/100.0))
     $needMB=[int][math]::Max(0,$desiredUsedMB-$used)
     $safeFreeMB=[int][math]::Max(0,$free-$reserveMB)
     $targetMB=[int][math]::Min($needMB,$safeFreeMB)
-
-    if ($configuredMaxMB -gt 0) {
-        $targetMB=[int][math]::Min($targetMB,$configuredMaxMB)
-    }
-
-    # Even when the machine is already above the target pressure, exercise a
-    # meaningful amount of RAM as long as the safety reserve permits it.
+    if ($configuredMaxMB -gt 0) { $targetMB=[int][math]::Min($targetMB,$configuredMaxMB) }
     if ($targetMB -lt $minMB) {
         $targetMB=[int][math]::Min($minMB,$safeFreeMB)
         if ($configuredMaxMB -gt 0) { $targetMB=[int][math]::Min($targetMB,$configuredMaxMB) }
@@ -223,17 +272,19 @@ function Get-SitecBurnInMemoryPlan {
         TotalMB=$TotalMB
         FreeBeforeMB=$free
         UsedBeforeMB=$used
+        CoverageMode='TargetPercent'
         TargetPercent=$targetPercent
         DesiredUsedMB=$desiredUsedMB
         AllocationTargetMB=$targetMB
+        SafeCoverageTargetMB=$targetMB
         ReserveMB=$reserveMB
+        ReservePercent=$null
         SafeFreeMB=$safeFreeMB
         MemoryMaximumMB=$configuredMaxMB
         MaximumMode=$(if($configuredMaxMB -gt 0){'Fixed'}else{'Dynamic'})
         ExpectedUsagePercent=$expectedPercent
     }
 }
-
 function Get-SitecBurnInMemoryTarget {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Context)

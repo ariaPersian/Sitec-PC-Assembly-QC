@@ -8,9 +8,14 @@ $ctx=Get-SitecContext
 Assert-True ([int]$ctx.Settings.BurnIn.DurationSeconds -eq 480) 'Production burn-in duration must be 480 seconds.'
 Assert-True ([int]$ctx.Settings.BurnIn.FinalizeGraceSeconds -eq 20) 'Burn-in finalization grace must be 20 seconds.'
 Assert-True ([int]$ctx.Settings.BurnIn.HardTimeoutGraceSeconds -eq 60) 'Burn-in watchdog grace must be 60 seconds.'
-Assert-True ([int]$ctx.Settings.BurnIn.MemoryMaximumMB -eq 0) 'Production RAM allocation must use dynamic capacity-aware mode (MemoryMaximumMB=0).'
-Assert-True ([double]$ctx.Settings.BurnIn.MemoryTargetPercent -eq 72) 'Production RAM pressure target must remain 72 percent.'
-Assert-True ([int]$ctx.Settings.BurnIn.MemoryReserveMB -ge 4096) 'At least 4 GB must remain reserved to avoid paging/thrash.'
+Assert-True ([string]$ctx.Settings.BurnIn.MemoryCoverageMode -eq 'MaximumSafe') 'Production RAM allocation must use MaximumSafe coverage mode.'
+Assert-True ([int]$ctx.Settings.BurnIn.MemoryMaximumMB -eq 0) 'Production RAM allocation must not use a fixed capacity cap.'
+Assert-True ([double]$ctx.Settings.BurnIn.MemoryReservePercent -eq 5) 'MaximumSafe RAM reserve must use the approved 5 percent scaling rule.'
+Assert-True ([int]$ctx.Settings.BurnIn.MemoryReserveMinimumMB -eq 2048) 'MaximumSafe RAM reserve floor must be 2 GB.'
+Assert-True ([int]$ctx.Settings.BurnIn.MemoryReserveMaximumMB -eq 4096) 'MaximumSafe RAM reserve ceiling must be 4 GB.'
+$profile=Get-SitecProfile -Context $ctx -ProfileId 'B760-14700K-990PRO'
+Assert-True ([double]$profile.Thresholds.MinimumBurnInMemoryPlanCoveragePercent -eq 95) 'RAM safe-allocation coverage gate must remain 95 percent.'
+Assert-True ([double]$profile.Thresholds.MaximumBurnInMemoryPeakShortfallPercent -eq 5) 'RAM peak shortfall tolerance must remain 5 percentage points.'
 Assert-True ([bool]$ctx.Settings.Reporting.StrictTwoPagePdf) 'Strict two-page customer PDF must be enabled.'
 
 $timeout=New-SitecBurnInTimeoutResult -DurationSeconds 480 -ActualSeconds 541 -Reason 'test watchdog'
@@ -35,6 +40,8 @@ $boundedSource=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZ-
 Assert-True ($boundedSource -match 'FinalizeGraceSeconds') 'Bounded burn-in must use a dedicated finalization grace window.'
 Assert-True ($boundedSource -match 'WaitForExit\(0\)') 'External workload completion must be checked with finite Process.WaitForExit semantics.'
 Assert-True ($boundedSource -match 'Video Memory Throughput') 'Completed WinSAT output must be usable as graphics completion evidence.'
+Assert-True ($boundedSource -match 'SafeCoverageTargetMB') 'Burn-in result must preserve the MaximumSafe allocation target.'
+Assert-True ($boundedSource -match 'BytesVerified -gt 0') 'RAM PASS must require real write/verify work.'
 
 $reportSource=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZZZZ-ReportTwoPage.ps1') -Raw
 Assert-True (([regex]::Matches($reportSource,'<div class=\"sheet\">')).Count -eq 2) 'Customer report template must contain exactly two A4 sheets.'

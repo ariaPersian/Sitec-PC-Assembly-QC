@@ -103,7 +103,7 @@ function Invoke-SitecFullSystemBurnIn {
             $cpuTask=[SitecQcBurnInV2]::CpuAsync($duration,[Environment]::ProcessorCount,$cpuDuty)
         }
         if($memoryEnabled){
-            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status 'START' -Message ("Starting RAM write/verify: target {0} MB with {1} workers." -f $memoryTarget.AllocationTargetMB,$memoryWorkers)
+            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status 'START' -Message ("Starting RAM write/verify: mode={0}; target={1} MB; reserve={2} MB; expected system usage={3}%; workers={4}." -f $memoryTarget.CoverageMode,$memoryTarget.AllocationTargetMB,$memoryTarget.ReserveMB,$memoryTarget.ExpectedUsagePercent,$memoryWorkers) -Data $memoryTarget
             $memoryTask=[SitecQcBurnInV2]::MemoryAsync($duration,[int]$memoryTarget.AllocationTargetMB,$memoryWorkers)
         }
 
@@ -147,7 +147,7 @@ function Invoke-SitecFullSystemBurnIn {
             try { $cpu=$cpuTask.GetAwaiter().GetResult();$cpuOk=$true } catch { $cpuError=$_.Exception.Message }
         }
         if ($null -ne $memoryTask -and $memoryTask.IsCompleted) {
-            try { $memory=$memoryTask.GetAwaiter().GetResult();$memoryOk=($memory.Errors -eq 0) } catch { $memoryError=$_.Exception.Message }
+            try { $memory=$memoryTask.GetAwaiter().GetResult();$memoryOk=($memory.Errors -eq 0 -and $memory.BytesVerified -gt 0 -and $memory.Passes -gt 0 -and $memory.AllocatedMB -ge 128) } catch { $memoryError=$_.Exception.Message }
         }
 
         if ($cpuEnabled) {
@@ -202,7 +202,11 @@ function Invoke-SitecFullSystemBurnIn {
         $finished=Get-Date
 
         $cpuResult=if($cpu){[pscustomobject]@{Enabled=$true;Status='PASS';Seconds=[math]::Round($cpu.Seconds,1);Threads=$cpu.Threads;DutyPercent=$cpu.DutyPercent;HashWorkMBps=[math]::Round($cpu.WorkUnitsPerSecond,2);WorkUnitsPerSecond=[math]::Round($cpu.WorkUnitsPerSecond,2);Iterations=$cpu.Iterations}}elseif($cpuEnabled){[pscustomobject]@{Enabled=$true;Status='FAIL';Seconds=0;Threads=[Environment]::ProcessorCount;DutyPercent=$cpuDuty;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}}else{[pscustomobject]@{Enabled=$false;Status='SKIPPED';Seconds=0;Threads=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}}
-        $memResult=if($memory){[pscustomobject]@{Enabled=$true;Status=$(if($memoryOk){'PASS'}else{'FAIL'});RequestedMB=$memory.RequestedMB;AllocatedMB=$memory.AllocatedMB;VerifiedMB=[math]::Round([double]$memory.BytesVerified/1MB,0);Errors=$memory.Errors;Seconds=[math]::Round($memory.Seconds,1);Passes=$memory.Passes;TargetSystemUsagePercent=$memoryTarget.TargetPercent;ExpectedSystemUsagePercent=$memoryTarget.ExpectedUsagePercent;AllocationMode=$memoryTarget.MaximumMode;ReserveMB=$memoryTarget.ReserveMB}}elseif($memoryEnabled){[pscustomobject]@{Enabled=$true;Status='FAIL';RequestedMB=$memoryTarget.AllocationTargetMB;AllocatedMB=0;VerifiedMB=0;Errors=[long]::MaxValue;Seconds=0;Passes=0;TargetSystemUsagePercent=$memoryTarget.TargetPercent;ExpectedSystemUsagePercent=$memoryTarget.ExpectedUsagePercent;AllocationMode=$memoryTarget.MaximumMode;ReserveMB=$memoryTarget.ReserveMB}}else{[pscustomobject]@{Enabled=$false;Status='SKIPPED';RequestedMB=0;AllocatedMB=0;VerifiedMB=0;Errors=0;Seconds=0;Passes=0;TargetSystemUsagePercent=$null;ExpectedSystemUsagePercent=$null;AllocationMode='None';ReserveMB=0}}
+        $memoryCoveragePercent=0.0
+        if($memoryEnabled -and $memory -and [double]$memoryTarget.SafeCoverageTargetMB -gt 0){
+            $memoryCoveragePercent=[math]::Round(([double]$memory.AllocatedMB/[double]$memoryTarget.SafeCoverageTargetMB)*100,1)
+        }
+        $memResult=if($memory){[pscustomobject]@{Enabled=$true;Status=$(if($memoryOk){'PASS'}else{'FAIL'});RequestedMB=$memory.RequestedMB;AllocatedMB=$memory.AllocatedMB;VerifiedMB=[math]::Round([double]$memory.BytesVerified/1MB,0);Errors=$memory.Errors;Seconds=[math]::Round($memory.Seconds,1);Passes=$memory.Passes;CoverageMode=$memoryTarget.CoverageMode;TargetSystemUsagePercent=$memoryTarget.TargetPercent;ExpectedSystemUsagePercent=$memoryTarget.ExpectedUsagePercent;AllocationMode=$memoryTarget.MaximumMode;SafeCoverageTargetMB=$memoryTarget.SafeCoverageTargetMB;AllocationCoveragePercent=$memoryCoveragePercent;ReserveMB=$memoryTarget.ReserveMB}}elseif($memoryEnabled){[pscustomobject]@{Enabled=$true;Status='FAIL';RequestedMB=$memoryTarget.AllocationTargetMB;AllocatedMB=0;VerifiedMB=0;Errors=[long]::MaxValue;Seconds=0;Passes=0;CoverageMode=$memoryTarget.CoverageMode;TargetSystemUsagePercent=$memoryTarget.TargetPercent;ExpectedSystemUsagePercent=$memoryTarget.ExpectedUsagePercent;AllocationMode=$memoryTarget.MaximumMode;SafeCoverageTargetMB=$memoryTarget.SafeCoverageTargetMB;AllocationCoveragePercent=0;ReserveMB=$memoryTarget.ReserveMB}}else{[pscustomobject]@{Enabled=$false;Status='SKIPPED';RequestedMB=0;AllocatedMB=0;VerifiedMB=0;Errors=0;Seconds=0;Passes=0;CoverageMode='None';TargetSystemUsagePercent=$null;ExpectedSystemUsagePercent=$null;AllocationMode='None';SafeCoverageTargetMB=0;AllocationCoveragePercent=0;ReserveMB=0}}
 
         $result=[pscustomobject]@{
             Status=if($pass){'PASS'}else{'FAIL'};Required=$true;TimedOut=$false;Error='';StartedAt=$started.ToString('o');FinishedAt=$finished.ToString('o');DurationSeconds=$duration;ActualSeconds=[math]::Round(($finished-$started).TotalSeconds,1)
