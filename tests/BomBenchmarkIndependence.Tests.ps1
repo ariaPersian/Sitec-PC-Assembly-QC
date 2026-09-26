@@ -6,7 +6,7 @@ $worker=Get-Content -LiteralPath (Join-Path $root 'Invoke-SitecQC.ps1') -Raw -En
 if ($worker -match [regex]::Escape("Benchmark skipped because expected BOM validation failed")) {
     throw 'Selected benchmarks can still be skipped because BOM validation failed.'
 }
-if ($worker -match [regex]::Escape("if ($bom.Status -eq 'PASS' -or $ContinueBenchmarkOnBomFailure)")) {
+if ($worker -match [regex]::Escape('if ($bom.Status -eq ''PASS'' -or $ContinueBenchmarkOnBomFailure)')) {
     throw 'Benchmark execution is still conditionally gated by BOM status.'
 }
 if ($worker -notmatch [regex]::Escape("BOM validation failed; running selected benchmarks independently")) {
@@ -17,7 +17,7 @@ $start=Get-Content -LiteralPath (Join-Path $root 'Start-SitecQC.ps1') -Raw -Enco
 if ($start -notmatch [regex]::Escape("'-ContinueBenchmarkOnBomFailure'")) {
     throw 'GUI compatibility safeguard for continue-on-BOM-failure is missing.'
 }
-if ($start -notmatch [regex]::Escape("'-BenchmarkComponents',(Q $benchmarkCsv)")) {
+if ($start -notmatch [regex]::Escape("'-BenchmarkComponents',(Q `$benchmarkCsv)")) {
     throw 'Operator benchmark selection forwarding was lost.'
 }
 
