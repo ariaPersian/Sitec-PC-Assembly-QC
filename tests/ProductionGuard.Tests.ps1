@@ -8,7 +8,8 @@ $ctx=Get-SitecContext
 Assert-True ([int]$ctx.Settings.BurnIn.DurationSeconds -eq 480) 'Production burn-in duration must be 480 seconds.'
 Assert-True ([int]$ctx.Settings.BurnIn.FinalizeGraceSeconds -eq 20) 'Burn-in finalization grace must be 20 seconds.'
 Assert-True ([int]$ctx.Settings.BurnIn.HardTimeoutGraceSeconds -eq 60) 'Burn-in watchdog grace must be 60 seconds.'
-Assert-True ([int]$ctx.Settings.BurnIn.MemoryMaximumMB -le 8192) 'Production RAM allocation cap must not exceed 8192 MB on the 16 GB profile.'
+Assert-True ([int]$ctx.Settings.BurnIn.MemoryMaximumMB -eq 0) 'Production RAM allocation must use dynamic capacity-aware mode (MemoryMaximumMB=0).'
+Assert-True ([double]$ctx.Settings.BurnIn.MemoryTargetPercent -eq 72) 'Production RAM pressure target must remain 72 percent.'
 Assert-True ([int]$ctx.Settings.BurnIn.MemoryReserveMB -ge 4096) 'At least 4 GB must remain reserved to avoid paging/thrash.'
 Assert-True ([bool]$ctx.Settings.Reporting.StrictTwoPagePdf) 'Strict two-page customer PDF must be enabled.'
 

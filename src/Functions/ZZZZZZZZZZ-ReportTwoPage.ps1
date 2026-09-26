@@ -161,7 +161,12 @@ function New-SitecCustomerReport {
                 $burnPairs += [pscustomobject]@{Label='CPU duty / threads';Value=("{0}% / {1}" -f $stress.CpuStress.DutyPercent,$stress.CpuStress.Threads)}
             }
             if ($selection -contains 'Memory') {
-                $burnPairs += [pscustomobject]@{Label='RAM allocated';Value=("{0} MB" -f $stress.MemoryVerification.AllocatedMB)}
+                $requestedMB=if($stress.MemoryVerification.PSObject.Properties['RequestedMB']){$stress.MemoryVerification.RequestedMB}else{$stress.MemoryVerification.AllocatedMB}
+                $burnPairs += [pscustomobject]@{Label='RAM requested / allocated';Value=("{0} MB / {1} MB" -f $requestedMB,$stress.MemoryVerification.AllocatedMB)}
+                $targetUsage=''
+                if($stress.MemoryVerification.PSObject.Properties['TargetSystemUsagePercent'] -and $null -ne $stress.MemoryVerification.TargetSystemUsagePercent){$targetUsage="$($stress.MemoryVerification.TargetSystemUsagePercent)%"}
+                $allocationMode=if($stress.MemoryVerification.PSObject.Properties['AllocationMode']){[string]$stress.MemoryVerification.AllocationMode}else{'Legacy'}
+                if(-not [string]::IsNullOrWhiteSpace($targetUsage)){$burnPairs += [pscustomobject]@{Label='RAM pressure target / mode';Value=("$targetUsage / $allocationMode")}}
                 $burnPairs += [pscustomobject]@{Label='RAM verified / errors';Value=("{0} MB / {1}" -f $stress.MemoryVerification.VerifiedMB,$stress.MemoryVerification.Errors)}
             }
             if ($selection -contains 'Disk') {

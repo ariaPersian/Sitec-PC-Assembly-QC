@@ -174,37 +174,79 @@ public static class SitecQcBurnInV2 {
     Add-Type -TypeDefinition $code -Language CSharp
 }
 
+function Get-SitecBurnInMemoryPlan {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][int]$TotalMB,
+        [Parameter(Mandatory)][int]$FreeMB,
+        [Parameter(Mandatory)]$Settings
+    )
+
+    if ($TotalMB -lt 128) { throw "Installed/visible memory is too small for RAM burn-in: $TotalMB MB." }
+    $free=[int][math]::Max(0,[math]::Min($TotalMB,$FreeMB))
+    $used=[int][math]::Max(0,$TotalMB-$free)
+
+    $targetPercent=[double]$Settings.MemoryTargetPercent
+    if ($targetPercent -le 0 -or $targetPercent -ge 95) {
+        throw "BurnIn.MemoryTargetPercent must be greater than 0 and lower than 95; actual=$targetPercent."
+    }
+
+    $reserveMB=[int][math]::Max(0,[int]$Settings.MemoryReserveMB)
+    $minMB=[int][math]::Max(128,[int]$Settings.MemoryMinimumMB)
+    $configuredMaxMB=0
+    if ($Settings.PSObject.Properties['MemoryMaximumMB']) { $configuredMaxMB=[int]$Settings.MemoryMaximumMB }
+
+    # MemoryMaximumMB=0 means AUTO: do not impose a fixed capacity cap.
+    # The workload instead grows to the configured whole-system usage target
+    # while respecting free-memory reserve. Positive values retain the legacy
+    # fixed-cap behavior for custom deployments.
+    $desiredUsedMB=[int][math]::Floor($TotalMB*($targetPercent/100.0))
+    $needMB=[int][math]::Max(0,$desiredUsedMB-$used)
+    $safeFreeMB=[int][math]::Max(0,$free-$reserveMB)
+    $targetMB=[int][math]::Min($needMB,$safeFreeMB)
+
+    if ($configuredMaxMB -gt 0) {
+        $targetMB=[int][math]::Min($targetMB,$configuredMaxMB)
+    }
+
+    # Even when the machine is already above the target pressure, exercise a
+    # meaningful amount of RAM as long as the safety reserve permits it.
+    if ($targetMB -lt $minMB) {
+        $targetMB=[int][math]::Min($minMB,$safeFreeMB)
+        if ($configuredMaxMB -gt 0) { $targetMB=[int][math]::Min($targetMB,$configuredMaxMB) }
+    }
+
+    $expectedUsedMB=[int][math]::Min($TotalMB,$used+$targetMB)
+    $expectedPercent=[math]::Round(($expectedUsedMB/[double]$TotalMB)*100,1)
+
+    [pscustomobject]@{
+        TotalMB=$TotalMB
+        FreeBeforeMB=$free
+        UsedBeforeMB=$used
+        TargetPercent=$targetPercent
+        DesiredUsedMB=$desiredUsedMB
+        AllocationTargetMB=$targetMB
+        ReserveMB=$reserveMB
+        SafeFreeMB=$safeFreeMB
+        MemoryMaximumMB=$configuredMaxMB
+        MaximumMode=$(if($configuredMaxMB -gt 0){'Fixed'}else{'Dynamic'})
+        ExpectedUsagePercent=$expectedPercent
+    }
+}
+
 function Get-SitecBurnInMemoryTarget {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Context)
 
     $os=Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
-    $totalMB=[math]::Floor([double]$os.TotalVisibleMemorySize/1024)
-    $freeMB=[math]::Floor([double]$os.FreePhysicalMemory/1024)
-    $usedMB=[math]::Max(0,$totalMB-$freeMB)
+    $totalMB=[int][math]::Floor([double]$os.TotalVisibleMemorySize/1024)
+    $freeMB=[int][math]::Floor([double]$os.FreePhysicalMemory/1024)
 
-    $cfg=$Context.Settings.BurnIn
-    $targetPercent=[double]$cfg.MemoryTargetPercent
-    $reserveMB=[int]$cfg.MemoryReserveMB
-    $minMB=[int]$cfg.MemoryMinimumMB
-    $maxMB=[int]$cfg.MemoryMaximumMB
-
-    $desiredUsedMB=[math]::Floor($totalMB*($targetPercent/100.0))
-    $needMB=[math]::Floor($desiredUsedMB-$usedMB)
-    $safeFreeMB=[math]::Max(128,$freeMB-$reserveMB)
-    $targetMB=[int][math]::Min($needMB,$safeFreeMB)
-    $targetMB=[int][math]::Min($targetMB,$maxMB)
-    if ($targetMB -lt $minMB) { $targetMB=[int][math]::Min($minMB,$safeFreeMB) }
-    if ($targetMB -lt 128) { $targetMB=128 }
-
-    [pscustomobject]@{
-        TotalMB=[int]$totalMB
-        FreeBeforeMB=[int]$freeMB
-        UsedBeforeMB=[int]$usedMB
-        TargetPercent=$targetPercent
-        AllocationTargetMB=$targetMB
-        ReserveMB=$reserveMB
+    $plan=Get-SitecBurnInMemoryPlan -TotalMB $totalMB -FreeMB $freeMB -Settings $Context.Settings.BurnIn
+    if ([int]$plan.AllocationTargetMB -lt 128) {
+        throw ("Insufficient safe free memory for RAM burn-in. Total={0} MB; free={1} MB; reserve={2} MB." -f $plan.TotalMB,$plan.FreeBeforeMB,$plan.ReserveMB)
     }
+    $plan
 }
 
 function Get-SitecLoadSnapshot {
