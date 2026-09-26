@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.14.2 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR semantics**.
+Current production workflow: **v3.15.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -119,6 +119,10 @@ Production QC combines:
 - optional PassMark/BurnInTest supporting evidence.
 
 RAM validation is plan-aware: at least 95% of the calculated safe allocation must actually be reserved, and observed peak RAM usage may fall no more than 5 percentage points below the calculated MaximumSafe target. The legacy fixed `>=70%` peak check remains only as a compatibility fallback for older result records.
+
+Operator feedback during QC now includes an explicit numeric progress percentage plus elapsed and estimated/known remaining time. While a benchmark is active, the GUI exposes a **CANCEL BENCHMARK** action; cancellation stops the owned benchmark process tree, marks the run as `CANCELLED`, and still finalizes the durable evidence instead of treating the operator action as an application crash.
+
+The durable `<AssetId>-Full.json` remains compatible with the rich `SITEC-QC-FULL-V1` structure and is now also produced for runtime-error runs whenever a run directory/partial manifest can be recovered. It contains `ErrorSummary`, `ErrorDetails`, `BenchmarkFailure`, diagnostics metadata and the Excel-compatible inventory projection. Benchmark child exceptions preserve the exact exception type, FullyQualifiedErrorId, PowerShell script stack, position and diagnostic source path.
 
 Runtime benchmark XML/log/HTML files are temporary and are removed after completion. Only a real application/runtime fault may keep one `LastFailure.zip` under `Output` for troubleshooting; a completed QC `FAIL` does not.
 
