@@ -56,4 +56,14 @@ Assert-True ($worker -match 'PASS_WITH_BOM_MISMATCH') 'Worker does not preserve 
 Assert-True ($worker -match 'HardwareQcStatus') 'Worker does not persist HardwareQcStatus.'
 Assert-True ($worker -match 'BomConformanceStatus') 'Worker does not persist BomConformanceStatus.'
 
+$report=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZZZZ-ReportTwoPage.ps1') -Raw -Encoding UTF8
+Assert-True ($report -match 'Hardware QC:') 'Two-page certificate does not separate Hardware QC from BOM conformance.'
+Assert-True ($report -match 'BOM conformance:') 'Two-page certificate does not show BOM conformance separately.'
+Assert-True ($report -match 'PASS_WITH_BOM_MISMATCH') 'Two-page certificate does not normalize advisory BOM status to PASS.'
+
+$full=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZZZZZZZZZZZZZZ-PresentationAndFullOutput.ps1') -Raw -Encoding UTF8
+Assert-True ($full -match 'HasWarnings') 'Full JSON does not distinguish advisory warnings from errors.'
+Assert-True ($full -match 'ErrorCount') 'Full JSON does not expose actual error count separately.'
+Assert-True ($full -match 'WarningCount') 'Full JSON does not expose advisory warning count separately.'
+
 Write-Host 'Advisory BOM conformance and watchdog regression tests passed.' -ForegroundColor Green
