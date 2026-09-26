@@ -49,7 +49,7 @@ function Invoke-SitecFullSystemBurnIn {
     $finalizeGrace=20
     if ($cfg.PSObject.Properties['FinalizeGraceSeconds']) { $finalizeGrace=[math]::Max(10,[int]$cfg.FinalizeGraceSeconds) }
     $memoryTarget=if($memoryEnabled){Get-SitecBurnInMemoryTarget -Context $Context}else{[pscustomobject]@{CoverageMode='None';AllocationTargetMB=0;TargetPercent=0;ExpectedUsagePercent=0;ReserveMB=0;SafeCoverageTargetMB=0}}
-    $graphicsPlan=if($graphicsEnabled){Get-SitecGraphicsBurnInPlan -Settings $cfg}else{[pscustomobject]@{CoverageMode='None';NormalWindows=0;GlassWindows=0;DesktopWidth=0;DesktopHeight=0;WindowWidth=0;WindowHeight=0;Offscreen=$false;NoLock=$false;TargetPeakPercent=0}}
+    $graphicsPlan=if($graphicsEnabled){Get-SitecGraphicsBurnInPlan -Settings $cfg}else{[pscustomobject]@{CoverageMode='None';WorkloadMode='None';NormalWindows=0;GlassWindows=0;DesktopWidth=0;DesktopHeight=0;WindowWidth=0;WindowHeight=0;Offscreen=$false;NoLock=$false;TargetAveragePercent=0;TargetPeakPercent=0}}
 
     $benchDir=Join-Path $RunPath 'benchmark\burnin'
     New-Item -ItemType Directory -Path $benchDir -Force | Out-Null
@@ -144,11 +144,16 @@ function Invoke-SitecFullSystemBurnIn {
             if ($null -ne $sample.MemoryUsedPercent) { $parts += ('RAM {0:N0}%' -f $sample.MemoryUsedPercent) }
             if ($null -ne $sample.DiskActivePercent) { $parts += ('Disk {0:N0}%' -f $sample.DiskActivePercent) }
             if ($null -ne $sample.GpuEnginePercent) { $parts += ('GPU {0:N0}%' -f $sample.GpuEnginePercent) }
-            Set-SitecBurnInUiProgress -RunPath $RunPath -Percent $uiPercent -Message ("Concurrent burn-in {0:N0}/{1}s | {2}" -f $elapsed,$duration,($parts -join ' | '))
+            $remaining=[math]::Max(0,$duration-$elapsed)
+            Set-SitecBurnInUiProgress -RunPath $RunPath -Percent $uiPercent -ElapsedSeconds $elapsed -RemainingSeconds $remaining -Message ("Concurrent burn-in {0:N0}/{1}s | remaining {2:N0}s | {3}" -f $elapsed,$duration,$remaining,($parts -join ' | '))
+            if(Test-SitecCancellationRequested){
+                Set-SitecBurnInUiProgress -RunPath $RunPath -Percent $uiPercent -ElapsedSeconds $elapsed -RemainingSeconds 0 -State 'CANCELLING' -Message 'Cancellation requested; stopping benchmark workloads and preserving partial evidence.'
+                throw [System.OperationCanceledException]::new('Benchmark cancelled by operator during full-system burn-in.')
+            }
             Start-Sleep -Seconds $sampleSeconds
         }
 
-        Set-SitecBurnInUiProgress -RunPath $RunPath -Percent 80 -Message 'Burn-in duration complete; finalizing workloads and parsing results.'
+        Set-SitecBurnInUiProgress -RunPath $RunPath -Percent 80 -ElapsedSeconds $duration -RemainingSeconds 0 -Message 'Burn-in duration complete; finalizing workloads and parsing results.'
         Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Finalize' -Status 'RUNNING' -Message ("Target duration completed. Allowing up to {0}s for workers/tool output to finalize." -f $finalizeGrace)
 
         $finalDeadline=(Get-Date).AddSeconds($finalizeGrace)
