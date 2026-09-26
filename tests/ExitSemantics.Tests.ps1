@@ -17,7 +17,7 @@ if ($compact -match [regex]::Escape('if($script:exitCode -ne 0){$phase=''saving 
 }
 
 $start=Get-Content -LiteralPath (Join-Path $root 'Start-SitecQC.ps1') -Raw -Encoding UTF8
-if ($start -notmatch [regex]::Escape("elseif ($effectiveStatus -in @('FAIL','CANCELLED'))")) {
+if ($start -notmatch [regex]::Escape('elseif ($effectiveStatus -in @(''FAIL'',''CANCELLED''))')) {
     throw 'GUI does not have an explicit Full-JSON-aware completed-QC-FAIL/CANCELLED branch.'
 }
 if ($start -notmatch [regex]::Escape('$fullIsCurrent') -or $start -notmatch [regex]::Escape('$publishedStatus')) {
