@@ -27,7 +27,7 @@ if ([string]$profile.Expected.CpuModelContains -ne 'i7-14700K') {
 }
 
 $report=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZZZZ-ReportTwoPage.ps1') -Raw -Encoding UTF8
-if ($report -notmatch [regex]::Escape('$allChecks=@($Run.BomValidation.Checks)+@($Run.BenchmarkValidation.Checks)')) {
+if ($report -notmatch [regex]::Escape('$allChecks=@($bomChecks)+@($benchmarkChecks)')) {
     throw 'Two-page report does not combine BOM and benchmark validation failures.'
 }
 if ($report -notmatch [regex]::Escape('Exact Error / Failure Reason')) {
