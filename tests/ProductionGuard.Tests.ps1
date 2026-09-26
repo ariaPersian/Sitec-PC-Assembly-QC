@@ -53,7 +53,7 @@ Assert-True ($watchdogSource -match 'taskkill\.exe') 'Watchdog must be able to t
 $boundedSource=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZ-ProductionBurnInBounded.ps1') -Raw
 Assert-True ($boundedSource -match 'FinalizeGraceSeconds') 'Bounded burn-in must use a dedicated finalization grace window.'
 Assert-True ($boundedSource -match 'WaitForExit\(0\)') 'External workload completion must be checked with finite Process.WaitForExit semantics.'
-Assert-True ($boundedSource -match 'Video Memory Throughput') 'Completed WinSAT output must be usable as graphics completion evidence.'
+Assert-True ($boundedSource -match 'Direct3D\|D3D') 'Completed WinSAT Direct3D output must be usable as graphics completion evidence.'
 Assert-True ($boundedSource -match 'SafeCoverageTargetMB') 'Burn-in result must preserve the MaximumSafe allocation target.'
 Assert-True ($boundedSource -match 'BytesVerified -gt 0') 'RAM PASS must require real write/verify work.'
 Assert-True ($boundedSource -match 'd3d -aname ALU') 'Maximum graphics burn-in must use the Direct3D ALU workload.'
