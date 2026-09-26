@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.11.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components**.
+Current production workflow: **v3.13.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -101,6 +101,8 @@ Before each run, the operator can independently select which hardware categories
 
 All four are selected by default, preserving the previous full-QC behavior. At least one benchmark category must remain selected. Inventory, expected-BOM validation, WHEA monitoring, hardware identity, evidence hashing/signing and report generation always run regardless of benchmark selection. Unselected benchmark categories are recorded as `SKIPPED` and are excluded from pass/fail threshold evaluation.
 
+Expected-BOM validation and benchmark execution are independent gates. A BOM mismatch **does not suppress the operator-selected benchmarks**; the selected CPU/RAM/Storage/Graphics tests still run and are reported. The final QC result remains `FAIL` whenever BOM validation fails, even if all selected benchmarks pass.
+
 Production QC combines:
 
 - Expected-BOM validation;
@@ -128,7 +130,7 @@ C:\BaselineQC\
     └── <AssetId>-Full.json
 ```
 
-The PDF is the human-readable handover document. `Baseline.json` is the compact machine-readable record aligned with the fleet/Excel workflow. `Full.json` preserves the complete QC run record, including raw detected hardware, physical identifiers, BOM validation, benchmark/burn-in results, WHEA data, validation results, duplicate-serial results, PassMark metadata when present, hardware/manifest hashes, and signature-verification metadata when available.
+The PDF is the human-readable handover document. `Baseline.json` is the compact machine-readable record aligned with the fleet/Excel workflow. `Full.json` preserves the complete QC run record, including raw detected hardware, physical identifiers, BOM validation, benchmark/burn-in results, WHEA data, validation results, structured `ErrorSummary`/`ErrorDetails`, duplicate-serial results, PassMark metadata when present, hardware/manifest hashes, and signature-verification metadata when available.
 
 The Baseline JSON includes an `ExcelInventory` projection whose field names align with the master hardware-inventory workbook. Assembly checklist fields that require a real operator action remain intentionally separate from automatically detected hardware/QC values.
 

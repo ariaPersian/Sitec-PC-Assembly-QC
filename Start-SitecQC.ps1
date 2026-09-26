@@ -128,7 +128,7 @@ function Refresh-SitecHardware {
         $TxtHeaderStatus.Text='READY';$TxtStage.Text='Ready'
         $usbCount=@($h.Storage | Where-Object { [string]$_.BusType -match '^(USB|SD|MMC)$' }).Count
         if ($usbCount -gt 0) { $TxtMessage.Text="Disconnect removable storage before running QC. Detected removable storage devices: $usbCount" }
-        else { $TxtMessage.Text='Hardware discovery completed. Confirm Asset ID, scan PSU serial and CPU ATPO, then run full QC. Tamper seal #1 follows Asset ID unless you overwrite it.' }
+        else { $TxtMessage.Text='Hardware discovery completed. Confirm Asset ID, scan PSU serial and CPU ATPO, then run selected QC. BOM mismatches do not suppress selected benchmarks; they still affect the final QC status.' }
     } catch {
         [Windows.MessageBox]::Show($_.Exception.Message,'Hardware detection failed') | Out-Null
         $TxtHeaderStatus.Text='ERROR';$TxtStage.Text='Error';$TxtMessage.Text=$_.Exception.Message
@@ -173,7 +173,7 @@ $BtnRun.Add_Click({
             '-CaseModel',(Q ([string]$profile.Expected.CaseModel)),'-PsuModel',(Q ([string]$profile.Expected.PsuModel)),'-PsuSerial',(Q $TxtPsuSerial.Text.Trim()),
             '-CpuAtpo',(Q $TxtCpuAtpo.Text.Trim()),'-Cooler',(Q ([string]$profile.Expected.CpuCoolerModel)),'-Seal1',(Q $TxtSeal1.Text.Trim()),
             '-BenchmarkComponents',(Q $benchmarkCsv),
-            '-BaselineRoot',(Q $BaselineRoot),'-WorkingRoot',(Q $script:WorkRoot)
+            '-BaselineRoot',(Q $BaselineRoot),'-WorkingRoot',(Q $script:WorkRoot),'-ContinueBenchmarkOnBomFailure'
         )
         $script:StartedAt=Get-Date;$script:CurrentStatus=$null;$script:LastReport=$null
         $script:Worker=Start-Process powershell.exe -ArgumentList ($argList -join ' ') -PassThru -WindowStyle Hidden

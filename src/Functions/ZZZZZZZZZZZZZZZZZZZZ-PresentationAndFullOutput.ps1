@@ -1,10 +1,61 @@
-# Production presentation/export policy for v3.10.0.
+# Production presentation/export policy for v3.13.0.
 # Raw hardware inventory remains untouched for validation, HWID and JSON evidence.
 # Only customer-facing UI/PDF presentation normalizes RAM branding to Crucial.
 
 function Get-SitecPublishedFullJsonPath {
     param([Parameter(Mandatory)][string]$BaselineRoot,[Parameter(Mandatory)][string]$AssetId)
     Join-Path (Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot) ("{0}-Full.json" -f $AssetId)
+}
+
+function Get-SitecFullErrorDetails {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Run,[Parameter(Mandatory)][string]$RunPath)
+
+    $details=@()
+    foreach ($group in @(
+        [pscustomobject]@{Name='BOM';Value=$(if($Run.PSObject.Properties['BomValidation']){$Run.BomValidation}else{$null})},
+        [pscustomobject]@{Name='Benchmark';Value=$(if($Run.PSObject.Properties['BenchmarkValidation']){$Run.BenchmarkValidation}else{$null})}
+    )) {
+        if ($null -eq $group.Value -or -not $group.Value.PSObject.Properties['Checks']) { continue }
+        foreach ($check in @($group.Value.Checks | Where-Object { [string]$_.Status -ne 'PASS' })) {
+            $details += [pscustomobject][ordered]@{
+                Source='Validation';Stage=$group.Name;Status=[string]$check.Status;Severity=[string]$check.Severity
+                Name=[string]$check.Name
+                Message=('{0}: expected [{1}], actual [{2}]' -f $check.Name,$check.Expected,$check.Actual)
+                Expected=[string]$check.Expected;Actual=[string]$check.Actual
+            }
+        }
+    }
+
+    if ($Run.PSObject.Properties['Benchmark'] -and $Run.Benchmark) {
+        $runtimeCandidates=@()
+        foreach ($name in @('WinSAT','DiskSpd','Stress','BurnIn')) {
+            if ($Run.Benchmark.PSObject.Properties[$name] -and $Run.Benchmark.$name) {
+                $runtimeCandidates += [pscustomobject]@{Name=$name;Value=$Run.Benchmark.$name}
+            }
+        }
+        foreach ($candidate in $runtimeCandidates) {
+            if (-not $candidate.Value.PSObject.Properties['Error'] -or [string]::IsNullOrWhiteSpace([string]$candidate.Value.Error)) { continue }
+            $details += [pscustomobject][ordered]@{
+                Source='RuntimeResult';Stage='Benchmark'
+                Status=$(if($candidate.Value.PSObject.Properties['Status']){[string]$candidate.Value.Status}else{'ERROR'})
+                Severity='ERROR';Name=[string]$candidate.Name;Message=[string]$candidate.Value.Error
+                Expected='';Actual=''
+            }
+        }
+    }
+
+    $fatalPath=Join-Path $RunPath 'fatal-error.json'
+    if (Test-Path -LiteralPath $fatalPath) {
+        try {
+            $fatal=Get-Content -LiteralPath $fatalPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $details += [pscustomobject][ordered]@{
+                Source='UnhandledException';Stage='Fatal';Status='ERROR';Severity='ERROR';Name='UnhandledException'
+                Message=[string]$fatal.Message;Expected='';Actual=''
+            }
+        } catch {}
+    }
+    @($details)
 }
 
 function Publish-SitecFullJson {
@@ -60,6 +111,22 @@ function Publish-SitecFullJson {
     else { $run | Add-Member -NotePropertyName FullExportSchema -NotePropertyValue 'SITEC-QC-FULL-V1' }
     if ($run.PSObject.Properties['PublishedFiles']) { $run.PublishedFiles=[pscustomobject]$published }
     else { $run | Add-Member -NotePropertyName PublishedFiles -NotePropertyValue ([pscustomobject]$published) }
+
+    $runPath=Split-Path -Parent $ManifestPath
+    $errorDetails=@(Get-SitecFullErrorDetails -Run $run -RunPath $runPath)
+    $primaryMessage=''
+    $primaryDetail=$errorDetails | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Message) } | Select-Object -First 1
+    if ($primaryDetail) { $primaryMessage=[string]$primaryDetail.Message }
+    $errorSummary=[pscustomobject][ordered]@{
+        HasErrors=([string]$run.OverallStatus -ne 'PASS' -or $errorDetails.Count -gt 0)
+        Count=$errorDetails.Count
+        PrimaryMessage=$primaryMessage
+        Items=$errorDetails
+    }
+    if ($run.PSObject.Properties['ErrorSummary']) { $run.ErrorSummary=$errorSummary }
+    else { $run | Add-Member -NotePropertyName ErrorSummary -NotePropertyValue $errorSummary }
+    if ($run.PSObject.Properties['ErrorDetails']) { $run.ErrorDetails=$errorDetails }
+    else { $run | Add-Member -NotePropertyName ErrorDetails -NotePropertyValue $errorDetails }
 
     $destination=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $AssetId
     $run | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath $destination -Encoding UTF8
