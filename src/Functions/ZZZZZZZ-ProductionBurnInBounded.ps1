@@ -95,12 +95,19 @@ function Invoke-SitecFullSystemBurnIn {
             }
         }
 
+        $gpuEngine='None'
         if ($graphicsEnabled -and (Get-Command winsat.exe -ErrorAction SilentlyContinue)) {
-            $normal=[int]$graphicsPlan.NormalWindows;$glass=[int]$graphicsPlan.GlassWindows
-            $gpuArgs="dwm -normalw $normal -glassw $glass -time $duration -width $($graphicsPlan.DesktopWidth) -height $($graphicsPlan.DesktopHeight) -winwidth $($graphicsPlan.WindowWidth) -winheight $($graphicsPlan.WindowHeight) -v"
-            if($graphicsPlan.NoLock){$gpuArgs+=' -nolock'}
-            if($graphicsPlan.Offscreen){$gpuArgs+=' -nodisp'}else{$gpuArgs+=' -fullscreen'}
-            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Graphics' -Status 'START' -Message ("Starting MaximumSafe WinSAT DWM graphics workload: {0} normal + {1} glass windows at {2}x{3}; target peak {4}%." -f $normal,$glass,$graphicsPlan.DesktopWidth,$graphicsPlan.DesktopHeight,$graphicsPlan.TargetPeakPercent) -Data ([pscustomobject]@{Command='winsat.exe';Arguments=$gpuArgs;Plan=$graphicsPlan})
+            if([string]$graphicsPlan.WorkloadMode -eq 'Direct3D-ALU'){
+                $gpuEngine='WinSAT Direct3D ALU maximum-load workload'
+                $gpuArgs="d3d -aname ALU -time $duration -fbc 10 -disp off -animate 10 -width $($graphicsPlan.DesktopWidth) -height $($graphicsPlan.DesktopHeight) -totalobj 500 -batchcnt C(125) -objs C(20) -noalpha -alushader -totaltex 10 -texpobj C(1) -rendertotex 6 -rtdelta 3"
+            } else {
+                $gpuEngine='WinSAT DWM composition workload'
+                $normal=[int]$graphicsPlan.NormalWindows;$glass=[int]$graphicsPlan.GlassWindows
+                $gpuArgs="dwm -normalw $normal -glassw $glass -time $duration -width $($graphicsPlan.DesktopWidth) -height $($graphicsPlan.DesktopHeight) -winwidth $($graphicsPlan.WindowWidth) -winheight $($graphicsPlan.WindowHeight) -v"
+                if($graphicsPlan.NoLock){$gpuArgs+=' -nolock'}
+                if($graphicsPlan.Offscreen){$gpuArgs+=' -disp off'}else{$gpuArgs+=' -fullscreen'}
+            }
+            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Graphics' -Status 'START' -Message ("Starting MaximumSafe GPU workload: {0}; target avg {1}%, target peak {2}%." -f $gpuEngine,$graphicsPlan.TargetAveragePercent,$graphicsPlan.TargetPeakPercent) -Data ([pscustomobject]@{Command='winsat.exe';Arguments=$gpuArgs;Plan=$graphicsPlan;Engine=$gpuEngine})
             $gpuProcess=Start-SitecBurnInProcess -FilePath 'winsat.exe' -Arguments $gpuArgs -StdOutPath $gpuOut -StdErrPath $gpuErr
             $gpuStatus='RUNNING'
         } elseif ($graphicsEnabled) {
@@ -195,7 +202,7 @@ function Invoke-SitecFullSystemBurnIn {
             try { if (Test-SitecOwnedProcessExited -Process $gpuProcess) { $gpuExit=$gpuProcess.ExitCode } } catch {}
             $gpuOutput='';$gpuEvidence=$false
             try { if (Test-Path -LiteralPath $gpuOut) { $gpuOutput=Get-Content -LiteralPath $gpuOut -Raw -ErrorAction SilentlyContinue } } catch {}
-            if ($gpuOutput -match 'Total Run Time' -and $gpuOutput -match 'Video Memory Throughput') { $gpuEvidence=$true }
+            if (($gpuOutput -match 'Total Run Time') -or (($gpuOutput -match 'Direct3D|D3D') -and ($gpuOutput -match 'ALU|Assessment'))) { $gpuEvidence=$true }
             if (($null -ne $gpuExit -and $gpuExit -eq 0) -or $gpuEvidence) { $gpuStatus='PASS' } else { $gpuStatus='FAIL';$gpuError='WinSAT did not produce a completed graphics result.' }
         }
 
@@ -224,7 +231,7 @@ function Invoke-SitecFullSystemBurnIn {
             Selection=@($selected)
             CpuStress=$cpuResult;MemoryVerification=$memResult
             DiskStress=[pscustomobject]@{Enabled=$diskEnabled;Status=$diskStatus;CoverageMode=$diskPlan.CoverageMode;ProcessExitCode=$diskExit;ReadMBps=$(if($diskMetrics){$diskMetrics.ReadMBps}else{$null});ReadIOPS=$(if($diskMetrics){$diskMetrics.ReadIOPS}else{$null});AverageReadLatencyMs=$(if($diskMetrics){$diskMetrics.AverageReadLatencyMs}else{$null});TargetSizeMB=$diskPlan.TargetSizeMB;FreeBeforeMB=$diskPlan.FreeBeforeMB;ReserveFreeMB=$diskPlan.ReserveFreeMB;BlockSizeKB=$diskPlan.BlockSizeKB;QueueDepth=$diskPlan.QueueDepth;Threads=$diskPlan.Threads;WritePercent=0;CacheMode=$diskPlan.CacheMode;ForcedStop=$forcedDiskStop;Error=$diskError;XmlPath=$diskOut;StdErrPath=$diskErr}
-            GraphicsStress=[pscustomobject]@{Enabled=$graphicsEnabled;Required=$requiredGraphics;Status=$gpuStatus;CoverageMode=$graphicsPlan.CoverageMode;TargetPeakPercent=$graphicsPlan.TargetPeakPercent;NormalWindows=$graphicsPlan.NormalWindows;GlassWindows=$graphicsPlan.GlassWindows;Resolution=("$($graphicsPlan.DesktopWidth)x$($graphicsPlan.DesktopHeight)");Offscreen=$graphicsPlan.Offscreen;NoLock=$graphicsPlan.NoLock;ProcessExitCode=$gpuExit;Engine='WinSAT DWM composition workload';ForcedStop=$forcedGpuStop;Error=$gpuError;OutputPath=$gpuOut;StdErrPath=$gpuErr}
+            GraphicsStress=[pscustomobject]@{Enabled=$graphicsEnabled;Required=$requiredGraphics;Status=$gpuStatus;CoverageMode=$graphicsPlan.CoverageMode;WorkloadMode=$graphicsPlan.WorkloadMode;TargetAveragePercent=$graphicsPlan.TargetAveragePercent;TargetPeakPercent=$graphicsPlan.TargetPeakPercent;NormalWindows=$graphicsPlan.NormalWindows;GlassWindows=$graphicsPlan.GlassWindows;Resolution=("$($graphicsPlan.DesktopWidth)x$($graphicsPlan.DesktopHeight)");Offscreen=$graphicsPlan.Offscreen;NoLock=$graphicsPlan.NoLock;ProcessExitCode=$gpuExit;Engine=$gpuEngine;ForcedStop=$forcedGpuStop;Error=$gpuError;OutputPath=$gpuOut;StdErrPath=$gpuErr}
             Utilization=$utilization;Sensors=$sensorSummary;LoadSamples=@($loadSamples)
         }
         Write-SitecStepResult -RunPath $RunPath -Step '40-full-system-burnin' -Value $result | Out-Null
