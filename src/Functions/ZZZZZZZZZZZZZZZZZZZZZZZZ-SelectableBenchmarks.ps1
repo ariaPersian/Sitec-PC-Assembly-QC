@@ -298,9 +298,9 @@ function Add-SitecBurnInSummaryToCertificate {
             }
         }
 
-        $section='<section><h2>Selected Hardware Burn-In</h2><table><tbody>'+($rows -join '')+'</tbody></table></section>'
+        $section='<section><h2>Full System Burn-In</h2><table><tbody>'+($rows -join '')+'</tbody></table></section>'
         $html=Get-Content -LiteralPath $htmlPath -Raw -Encoding UTF8
-        if ($html -match '<h2>Selected Hardware Burn-In</h2>') { return $false }
+        if ($html -match '<h2>Full System Burn-In</h2>') { return $false }
         $html=$html.Replace('<div class="footer">',$section+'<div class="footer">')
         Set-Content -LiteralPath $htmlPath -Value $html -Encoding UTF8
         return $true
