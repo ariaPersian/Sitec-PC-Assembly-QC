@@ -49,10 +49,14 @@ $ChkBenchDisk=C 'ChkBenchDisk'
 $ChkBenchGraphics=C 'ChkBenchGraphics'
 $BtnDetect=C 'BtnDetect'
 $BtnRun=C 'BtnRun'
+$BtnCancel=C 'BtnCancel'
 $BtnOpenLast=C 'BtnOpenLast'
 $TxtHardware=C 'TxtHardware'
 $TxtLog=C 'TxtLog'
 $TxtStage=C 'TxtStage'
+$TxtProgressPercent=C 'TxtProgressPercent'
+$TxtElapsed=C 'TxtElapsed'
+$TxtRemaining=C 'TxtRemaining'
 $TxtMessage=C 'TxtMessage'
 $ProgressQc=C 'ProgressQc'
 $TxtHeaderStatus=C 'TxtHeaderStatus'
@@ -69,6 +73,7 @@ $script:StartedAt=$null
 $script:CurrentStatus=$null
 $script:Hardware=$null
 $script:WorkRoot=$null
+$script:CancelPath=$null
 
 function Get-SitecCaptureFlag([string]$Name,[bool]$Default) {
     if ($null -eq $profile.Capture) { return $Default }
@@ -136,6 +141,13 @@ function Refresh-SitecHardware {
 }
 
 function Q([string]$s) { '"' + ($s -replace '"','\"') + '"' }
+
+function Format-SitecUiDuration([double]$Seconds) {
+    if ($Seconds -lt 0) { return '--:--' }
+    $ts=[TimeSpan]::FromSeconds([math]::Max(0,[math]::Round($Seconds)))
+    if ($ts.TotalHours -ge 1) { return ('{0:00}:{1:00}:{2:00}' -f [int]$ts.TotalHours,$ts.Minutes,$ts.Seconds) }
+    return ('{0:00}:{1:00}' -f $ts.Minutes,$ts.Seconds)
+}
 $BtnDetect.Add_Click({ Refresh-SitecHardware })
 $TxtAssetId.Add_TextChanged({ $TxtSeal1.Text=$TxtAssetId.Text })
 $TxtAssetId.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtPsuSerial.Focus() | Out-Null; $_.Handled=$true } })
@@ -166,6 +178,8 @@ $BtnRun.Add_Click({
         $benchmarkCsv=$benchmarkComponents -join ','
 
         $script:WorkRoot=New-SitecWorkingRoot -AssetId $asset -BaseDataRoot ([string]$context.Settings.DataRoot)
+        $script:CancelPath=Join-Path $script:WorkRoot 'cancel.request.json'
+        Remove-Item -LiteralPath $script:CancelPath -Force -ErrorAction SilentlyContinue
         $worker=Join-Path $root 'Invoke-SitecQC-Compact.ps1'
         $argList=@(
             '-NoProfile','-ExecutionPolicy','Bypass','-File',(Q $worker),
@@ -178,9 +192,32 @@ $BtnRun.Add_Click({
         $script:StartedAt=Get-Date;$script:CurrentStatus=$null;$script:LastReport=$null
         $script:Worker=Start-Process powershell.exe -ArgumentList ($argList -join ' ') -PassThru -WindowStyle Hidden
         $BtnRun.IsEnabled=$false;$BtnDetect.IsEnabled=$false;$BtnOpenLast.IsEnabled=$false
+        $BtnCancel.Visibility='Visible';$BtnCancel.IsEnabled=$true
         @($ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$false }
-        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched for [{0}]. Scratch data: {1} | Final output: {2}\Output" -f $benchmarkCsv,$script:WorkRoot,$BaselineRoot)
+        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtProgressPercent.Text='1%';$TxtElapsed.Text='Elapsed: 00:00';$TxtRemaining.Text='Remaining: --:--';$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched for [{0}]. Scratch data: {1} | Final output: {2}\Output" -f $benchmarkCsv,$script:WorkRoot,$BaselineRoot)
     } catch { [Windows.MessageBox]::Show($_.Exception.Message,'Cannot start QC') | Out-Null }
+})
+
+$BtnCancel.Add_Click({
+    if (-not $script:Worker -or $script:Worker.HasExited -or [string]::IsNullOrWhiteSpace($script:CancelPath)) { return }
+    $answer=[Windows.MessageBox]::Show('Cancel the active benchmark? Partial evidence and the Full JSON record will still be finalized and saved.','Cancel benchmark',[Windows.MessageBoxButton]::YesNo,[Windows.MessageBoxImage]::Warning)
+    if ($answer -ne [Windows.MessageBoxResult]::Yes) { return }
+    try {
+        [ordered]@{
+            Schema='SITEC-QC-CANCEL-V1'
+            AssetId=$TxtAssetId.Text.Trim()
+            RequestedAt=(Get-Date).ToString('o')
+            RequestedBy=$automaticOperator
+            Reason='Operator requested benchmark cancellation from the SitecQC GUI.'
+        } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $script:CancelPath -Encoding UTF8
+        $BtnCancel.IsEnabled=$false
+        $TxtHeaderStatus.Text='CANCELLING'
+        $TxtHeaderStatus.Foreground='#FFD166'
+        $TxtStage.Text='Cancelling benchmark'
+        $TxtMessage.Text='Cancellation requested. Active benchmark processes are being stopped safely; partial evidence and Full JSON will be finalized.'
+    } catch {
+        [Windows.MessageBox]::Show($_.Exception.Message,'Unable to cancel benchmark') | Out-Null
+    }
 })
 
 $timer=New-Object Windows.Threading.DispatcherTimer
@@ -192,36 +229,72 @@ $timer.Add_Tick({
         $assetRoot=Join-Path $script:WorkRoot ("Assets\$asset\Runs")
         if (Test-Path $assetRoot) {
             $statusFile=Get-ChildItem -LiteralPath $assetRoot -Filter status.json -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge $script:StartedAt.AddSeconds(-2) } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-            if ($statusFile) { try { $s=Get-Content $statusFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json;$script:CurrentStatus=$s;$ProgressQc.Value=[int]$s.Percent;$TxtStage.Text=[string]$s.Stage;$TxtMessage.Text=[string]$s.Message;$log=Join-Path $s.RunPath 'worker.log';if (Test-Path $log) { $TxtLog.Text=Get-Content $log -Raw -Encoding UTF8;$TxtLog.ScrollToEnd() } } catch {} }
+            if ($statusFile) {
+                try {
+                    $s=Get-Content $statusFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+                    $script:CurrentStatus=$s
+                    $pct=[int][math]::Max(0,[math]::Min(100,[int]$s.Percent))
+                    $ProgressQc.Value=$pct
+                    $TxtProgressPercent.Text=("$pct%")
+                    $TxtStage.Text=[string]$s.Stage
+                    $TxtMessage.Text=[string]$s.Message
+                    $elapsedSeconds=if($s.PSObject.Properties['ElapsedSeconds']){[double]$s.ElapsedSeconds}elseif($script:StartedAt){((Get-Date)-$script:StartedAt).TotalSeconds}else{0}
+                    $TxtElapsed.Text=('Elapsed: '+(Format-SitecUiDuration $elapsedSeconds))
+                    if($s.PSObject.Properties['RemainingSeconds'] -and $null -ne $s.RemainingSeconds -and [double]$s.RemainingSeconds -ge 0){
+                        $TxtRemaining.Text=('Remaining: '+(Format-SitecUiDuration ([double]$s.RemainingSeconds)))
+                    } else {
+                        $TxtRemaining.Text='Remaining: calculating...'
+                    }
+                    $log=Join-Path $s.RunPath 'worker.log'
+                    if (Test-Path $log) { $TxtLog.Text=Get-Content $log -Raw -Encoding UTF8;$TxtLog.ScrollToEnd() }
+                } catch {}
+            }
         }
     }
     if ($script:Worker.HasExited) {
         $BtnRun.IsEnabled=$true;$BtnDetect.IsEnabled=$true
+        $BtnCancel.IsEnabled=$false;$BtnCancel.Visibility='Collapsed'
         @($ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$true }
         $published=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $asset
         if (Test-Path -LiteralPath $published) { $script:LastReport=$published }
         $BtnOpenLast.IsEnabled=[bool]$script:LastReport
-        $ProgressQc.Value=100
+        $ProgressQc.Value=100;$TxtProgressPercent.Text='100%'
+        if($script:StartedAt){$TxtElapsed.Text=('Elapsed: '+(Format-SitecUiDuration (((Get-Date)-$script:StartedAt).TotalSeconds)))}
+        $TxtRemaining.Text='Remaining: 00:00'
         if ($script:Worker.ExitCode -eq 0) {
             $TxtHeaderStatus.Text='PASS';$TxtHeaderStatus.Foreground='#A8E6BE';$TxtStage.Text='Complete'
             $TxtMessage.Text="QC complete: PASS. PDF + Baseline JSON + Full JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB."
         }
         elseif ($script:Worker.ExitCode -eq 2) {
-            $TxtHeaderStatus.Text='FAIL';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtStage.Text='Complete - QC FAIL'
-            $reason=''
+            $reason='';$publishedStatus='FAIL'
             $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $asset
             if (Test-Path -LiteralPath $fullJson) {
                 try {
                     $full=Get-Content -LiteralPath $fullJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if ($full.PSObject.Properties['OverallStatus']) { $publishedStatus=[string]$full.OverallStatus }
                     if ($full.PSObject.Properties['ErrorSummary'] -and $full.ErrorSummary) { $reason=[string]$full.ErrorSummary.PrimaryMessage }
                 } catch {}
             }
-            if ([string]::IsNullOrWhiteSpace($reason)) { $reason='One or more QC validation gates failed.' }
-            $TxtMessage.Text=("QC completed: FAIL. {0} PDF + Baseline JSON + Full JSON were saved to {1}\Output. This is a QC result, not an application error." -f $reason,$BaselineRoot)
+            if($publishedStatus -eq 'CANCELLED'){
+                $TxtHeaderStatus.Text='CANCELLED';$TxtHeaderStatus.Foreground='#FFD166';$TxtStage.Text='Benchmark cancelled'
+                if ([string]::IsNullOrWhiteSpace($reason)) { $reason='Benchmark cancelled by operator.' }
+                $TxtMessage.Text=("QC benchmark cancelled. {0} Partial PDF/Full JSON evidence was saved to {1}\Output." -f $reason,$BaselineRoot)
+            } else {
+                $TxtHeaderStatus.Text='FAIL';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtStage.Text='Complete - QC FAIL'
+                if ([string]::IsNullOrWhiteSpace($reason)) { $reason='One or more QC validation gates failed.' }
+                $TxtMessage.Text=("QC completed: FAIL. {0} PDF + Baseline JSON + Full JSON were saved to {1}\Output. This is a QC result, not an application error." -f $reason,$BaselineRoot)
+            }
         }
         else {
             $TxtHeaderStatus.Text='ERROR';$TxtHeaderStatus.Foreground='#FFB4AB';$TxtStage.Text='Runtime error'
             $failureMessage=''
+            $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $asset
+            if(Test-Path -LiteralPath $fullJson){
+                try {
+                    $full=Get-Content -LiteralPath $fullJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if($full.PSObject.Properties['ErrorSummary'] -and $full.ErrorSummary){$failureMessage=[string]$full.ErrorSummary.PrimaryMessage}
+                } catch {}
+            }
             $failureJson=Join-Path (Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot) ($asset+'-LastFailure.json')
             if (Test-Path -LiteralPath $failureJson) {
                 try { $failureMessage=[string](Get-Content -LiteralPath $failureJson -Raw -Encoding UTF8 | ConvertFrom-Json).message } catch {}
@@ -229,7 +302,7 @@ $timer.Add_Tick({
             if ([string]::IsNullOrWhiteSpace($failureMessage)) { $failureMessage='The QC application or publishing pipeline encountered a runtime error.' }
             $TxtMessage.Text=("QC runtime ERROR. {0} Check LastFailure diagnostics in {1}\Output." -f $failureMessage,$BaselineRoot)
         }
-        $script:Worker=$null;$script:WorkRoot=$null
+        $script:Worker=$null;$script:WorkRoot=$null;$script:CancelPath=$null
     }
 })
 $timer.Start()

@@ -56,6 +56,8 @@ function Invoke-SitecSelectedWinSat {
             $cpuStatus=if($cpu.ExitCode -eq 0){'PASS'}else{'FAIL'}
             $cpuMetric=Get-WinSatMetricFromXml -Path $cpuXml -XPath '//CPUMetrics/CompressionMetric'
             if ($null -eq $cpuMetric) { $cpuMetric=Get-WinSatMetricFromXml -Path $cpuXml -XPath '//CPUCompressionAssessment/Metric' }
+        } catch [System.OperationCanceledException] {
+            throw
         } catch {
             $cpuStatus='FAIL'
         }
@@ -76,6 +78,8 @@ function Invoke-SitecSelectedWinSat {
                     if ($n) { $memMetric=[double]::Parse($n.InnerText,[Globalization.CultureInfo]::InvariantCulture) }
                 } catch {}
             }
+        } catch [System.OperationCanceledException] {
+            throw
         } catch {
             $memStatus='FAIL'
         }
@@ -102,12 +106,39 @@ function Invoke-SitecBenchmarkSuite {
 
     $selection=@(Get-SitecBenchmarkSelection)
     $started=Get-Date
+    $winsat=[pscustomobject]@{Available=$false;Status='SKIPPED';CpuStatus='SKIPPED';MemoryStatus='SKIPPED';CpuCompressionMBps=$null;MemoryMBps=$null;CpuExitCode=$null;MemoryExitCode=$null}
+    $disk=[pscustomobject]@{Available=$false;Required=$false;Status='SKIPPED';SequentialReadMBps=$null;SequentialWriteMBps=$null;RandomReadIOPS=$null}
+    $cancelReason=''
+
+    function NewCancelledSuiteResult([string]$Reason) {
+        $elapsed=((Get-Date)-$started).TotalSeconds
+        $burn=New-SitecBurnInCancelledResult -DurationSeconds 0 -ActualSeconds $elapsed -Reason $Reason
+        $whea=Get-SitecWheaEvents -Since $started
+        [pscustomobject]@{
+            Selection=@($selection)
+            Cancelled=$true
+            CancellationReason=$Reason
+            StartedAt=$started.ToString('o')
+            FinishedAt=(Get-Date).ToString('o')
+            WinSAT=$winsat
+            DiskSpd=$disk
+            BurnIn=$burn
+            Stress=$burn
+            WHEA=[pscustomobject]@{Count=@($whea).Count;Events=@($whea)}
+        }
+    }
+
+    if (Test-SitecCancellationRequested) {
+        return NewCancelledSuiteResult 'Benchmark cancelled by operator before performance qualification started.'
+    }
 
     if ((Test-SitecBenchmarkComponent -Name 'CPU') -or (Test-SitecBenchmarkComponent -Name 'Memory')) {
         Set-SitecBurnInUiProgress -RunPath $RunPath -Percent 30 -Message ('Performance qualification: '+(($selection | Where-Object { $_ -in @('CPU','Memory') }) -join ' + '))
     }
     try {
         $winsat=Invoke-SitecSelectedWinSat -Context $Context -RunPath $RunPath
+    } catch [System.OperationCanceledException] {
+        $cancelReason=$_.Exception.Message
     } catch {
         $winsat=[pscustomobject]@{
             Available=$true;Status='FAIL'
@@ -116,35 +147,48 @@ function Invoke-SitecBenchmarkSuite {
             CpuCompressionMBps=$null;MemoryMBps=$null;Error=$_.Exception.Message
         }
     }
+    if (-not [string]::IsNullOrWhiteSpace($cancelReason) -or (Test-SitecCancellationRequested)) {
+        if([string]::IsNullOrWhiteSpace($cancelReason)){$cancelReason='Benchmark cancelled by operator during WinSAT qualification.'}
+        return NewCancelledSuiteResult $cancelReason
+    }
 
     if (Test-SitecBenchmarkComponent -Name 'Disk') {
         Set-SitecBurnInUiProgress -RunPath $RunPath -Percent 35 -Message 'Performance qualification: storage throughput and IOPS'
         try {
             $disk=Invoke-SitecDiskSpd -Context $Context -RunPath $RunPath
+        } catch [System.OperationCanceledException] {
+            $cancelReason=$_.Exception.Message
         } catch {
             $disk=[pscustomobject]@{Available=$true;Required=[bool]$Context.Settings.DiskSpd.Enabled;Status='FAIL';SequentialReadMBps=$null;SequentialWriteMBps=$null;RandomReadIOPS=$null;Error=$_.Exception.Message}
         }
-    } else {
-        $disk=[pscustomobject]@{Available=$false;Required=$false;Status='SKIPPED';SequentialReadMBps=$null;SequentialWriteMBps=$null;RandomReadIOPS=$null}
+    }
+    if (-not [string]::IsNullOrWhiteSpace($cancelReason) -or (Test-SitecCancellationRequested)) {
+        if([string]::IsNullOrWhiteSpace($cancelReason)){$cancelReason='Benchmark cancelled by operator during storage qualification.'}
+        return NewCancelledSuiteResult $cancelReason
     }
 
     Set-SitecBurnInUiProgress -RunPath $RunPath -Percent 40 -Message ('Starting selected burn-in: '+($selection -join ' + '))
     try {
         $burn=Invoke-SitecFullSystemBurnIn -Context $Context -RunPath $RunPath
+    } catch [System.OperationCanceledException] {
+        $burn=New-SitecBurnInCancelledResult -DurationSeconds 0 -ActualSeconds ((Get-Date)-$started).TotalSeconds -Reason $_.Exception.Message
     } catch {
         $burn=[pscustomobject]@{
-            Status='FAIL';Required=$true;Error=$_.Exception.Message;DurationSeconds=0;ActualSeconds=0;Selection=@($selection)
+            Status='FAIL';Required=$true;Cancelled=$false;TimedOut=$false;Error=$_.Exception.Message;DurationSeconds=0;ActualSeconds=0;Selection=@($selection)
             CpuStress=[pscustomobject]@{Enabled=(Test-SitecBenchmarkComponent -Name 'CPU');Status='FAIL';Seconds=0;Threads=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}
             MemoryVerification=[pscustomobject]@{Enabled=(Test-SitecBenchmarkComponent -Name 'Memory');Status='FAIL';RequestedMB=0;AllocatedMB=0;VerifiedMB=0;Errors=[long]::MaxValue;Seconds=0;Passes=0}
             DiskStress=[pscustomobject]@{Enabled=(Test-SitecBenchmarkComponent -Name 'Disk');Status='FAIL';ReadMBps=$null;ReadIOPS=$null;AverageReadLatencyMs=$null}
-            GraphicsStress=[pscustomobject]@{Enabled=(Test-SitecBenchmarkComponent -Name 'Graphics');Required=$false;Status='FAIL';Engine='WinSAT DWM composition workload'}
+            GraphicsStress=[pscustomobject]@{Enabled=(Test-SitecBenchmarkComponent -Name 'Graphics');Required=(Test-SitecBenchmarkComponent -Name 'Graphics');Status='FAIL';CoverageMode='MaximumSafe';WorkloadMode='Direct3D-ALU';Engine='WinSAT Direct3D ALU maximum-load workload'}
             Utilization=(Get-SitecLoadSummary @());Sensors=@();LoadSamples=@()
         }
     }
 
+    $cancelled=($burn.PSObject.Properties['Cancelled'] -and [bool]$burn.Cancelled) -or ([string]$burn.Status -eq 'CANCELLED')
     $whea=Get-SitecWheaEvents -Since $started
     [pscustomobject]@{
         Selection=@($selection)
+        Cancelled=$cancelled
+        CancellationReason=$(if($cancelled){[string]$burn.Error}else{''})
         StartedAt=$started.ToString('o')
         FinishedAt=(Get-Date).ToString('o')
         WinSAT=$winsat
@@ -154,7 +198,6 @@ function Invoke-SitecBenchmarkSuite {
         WHEA=[pscustomobject]@{Count=@($whea).Count;Events=@($whea)}
     }
 }
-
 function Test-SitecBenchmarkResults {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Benchmark,[Parameter(Mandatory)]$Profile)

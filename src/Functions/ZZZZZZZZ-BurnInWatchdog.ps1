@@ -12,23 +12,84 @@ function New-SitecBurnInTimeoutResult {
         [double]$ActualSeconds,
         [string]$Reason='Burn-in watchdog timeout'
     )
+    $selection=@()
+    try { $selection=@(Get-SitecBenchmarkSelection) } catch {}
+    function Sel([string]$Name){$selection -contains $Name}
     [pscustomobject]@{
         Status='FAIL'
         Required=$true
+        Cancelled=$false
         Error=$Reason
         TimedOut=$true
         DurationSeconds=$DurationSeconds
         ActualSeconds=[math]::Round($ActualSeconds,1)
-        CpuStress=[pscustomobject]@{Seconds=0;Threads=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}
-        MemoryVerification=[pscustomobject]@{RequestedMB=0;AllocatedMB=0;VerifiedMB=0;Errors=[long]::MaxValue;Seconds=0;Passes=0;TargetSystemUsagePercent=$null}
-        DiskStress=[pscustomobject]@{Enabled=$true;Status='TIMEOUT';ReadMBps=$null;ReadIOPS=$null;AverageReadLatencyMs=$null;Error=$Reason}
-        GraphicsStress=[pscustomobject]@{Enabled=$true;Required=$false;Status='TIMEOUT';Engine='Isolated burn-in child process';Error=$Reason}
+        Selection=@($selection)
+        CpuStress=[pscustomobject]@{
+            Enabled=(Sel 'CPU');Status=$(if(Sel 'CPU'){'TIMEOUT'}else{'SKIPPED'});CoverageMode=$(if(Sel 'CPU'){'MaximumSafe'}else{'None'})
+            Seconds=0;LogicalProcessors=[Environment]::ProcessorCount;Threads=0;ThreadCoveragePercent=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0
+        }
+        MemoryVerification=[pscustomobject]@{
+            Enabled=(Sel 'Memory');Status=$(if(Sel 'Memory'){'TIMEOUT'}else{'SKIPPED'});RequestedMB=0;AllocatedMB=0;VerifiedMB=0;Errors=$(if(Sel 'Memory'){[long]::MaxValue}else{0})
+            Seconds=0;Passes=0;CoverageMode=$(if(Sel 'Memory'){'MaximumSafe'}else{'None'});TargetSystemUsagePercent=$null;ExpectedSystemUsagePercent=$null
+            AllocationMode=$(if(Sel 'Memory'){'MaximumSafe'}else{'None'});SafeCoverageTargetMB=0;AllocationCoveragePercent=0;ReserveMB=0
+        }
+        DiskStress=[pscustomobject]@{
+            Enabled=(Sel 'Disk');Status=$(if(Sel 'Disk'){'TIMEOUT'}else{'SKIPPED'});CoverageMode=$(if(Sel 'Disk'){'MaximumSafe'}else{'None'})
+            ProcessExitCode=$null;ReadMBps=$null;ReadIOPS=$null;AverageReadLatencyMs=$null;TargetSizeMB=0;FreeBeforeMB=0;ReserveFreeMB=0
+            BlockSizeKB=0;QueueDepth=0;Threads=0;WritePercent=0;CacheMode='None';ForcedStop=$true;Error=$Reason;XmlPath='';StdErrPath=''
+        }
+        GraphicsStress=[pscustomobject]@{
+            Enabled=(Sel 'Graphics');Required=(Sel 'Graphics');Status=$(if(Sel 'Graphics'){'TIMEOUT'}else{'SKIPPED'});CoverageMode=$(if(Sel 'Graphics'){'MaximumSafe'}else{'None'})
+            WorkloadMode=$(if(Sel 'Graphics'){'Direct3D-ALU'}else{'None'});TargetAveragePercent=0;TargetPeakPercent=0;NormalWindows=0;GlassWindows=0;Resolution=''
+            Offscreen=$true;NoLock=$false;ProcessExitCode=$null;Engine='Isolated burn-in child process';ForcedStop=$true;Error=$Reason;OutputPath='';StdErrPath=''
+        }
         Utilization=(Get-SitecLoadSummary @())
         Sensors=@()
         LoadSamples=@()
     }
 }
-
+function New-SitecBurnInCancelledResult {
+    param(
+        [int]$DurationSeconds,
+        [double]$ActualSeconds,
+        [string]$Reason='Benchmark cancelled by operator.'
+    )
+    $selection=@()
+    try { $selection=@(Get-SitecBenchmarkSelection) } catch {}
+    function Sel([string]$Name){$selection -contains $Name}
+    [pscustomobject]@{
+        Status='CANCELLED'
+        Required=$true
+        Cancelled=$true
+        TimedOut=$false
+        Error=$Reason
+        DurationSeconds=$DurationSeconds
+        ActualSeconds=[math]::Round($ActualSeconds,1)
+        Selection=@($selection)
+        CpuStress=[pscustomobject]@{
+            Enabled=(Sel 'CPU');Status=$(if(Sel 'CPU'){'CANCELLED'}else{'SKIPPED'});CoverageMode=$(if(Sel 'CPU'){'MaximumSafe'}else{'None'})
+            Seconds=0;LogicalProcessors=[Environment]::ProcessorCount;Threads=0;ThreadCoveragePercent=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0
+        }
+        MemoryVerification=[pscustomobject]@{
+            Enabled=(Sel 'Memory');Status=$(if(Sel 'Memory'){'CANCELLED'}else{'SKIPPED'});RequestedMB=0;AllocatedMB=0;VerifiedMB=0;Errors=0;Seconds=0;Passes=0
+            CoverageMode=$(if(Sel 'Memory'){'MaximumSafe'}else{'None'});TargetSystemUsagePercent=$null;ExpectedSystemUsagePercent=$null
+            AllocationMode=$(if(Sel 'Memory'){'MaximumSafe'}else{'None'});SafeCoverageTargetMB=0;AllocationCoveragePercent=0;ReserveMB=0
+        }
+        DiskStress=[pscustomobject]@{
+            Enabled=(Sel 'Disk');Status=$(if(Sel 'Disk'){'CANCELLED'}else{'SKIPPED'});CoverageMode=$(if(Sel 'Disk'){'MaximumSafe'}else{'None'})
+            ProcessExitCode=$null;ReadMBps=$null;ReadIOPS=$null;AverageReadLatencyMs=$null;TargetSizeMB=0;FreeBeforeMB=0;ReserveFreeMB=0
+            BlockSizeKB=0;QueueDepth=0;Threads=0;WritePercent=0;CacheMode='None';ForcedStop=$true;Error=$Reason;XmlPath='';StdErrPath=''
+        }
+        GraphicsStress=[pscustomobject]@{
+            Enabled=(Sel 'Graphics');Required=(Sel 'Graphics');Status=$(if(Sel 'Graphics'){'CANCELLED'}else{'SKIPPED'});CoverageMode=$(if(Sel 'Graphics'){'MaximumSafe'}else{'None'})
+            WorkloadMode=$(if(Sel 'Graphics'){'Direct3D-ALU'}else{'None'});TargetAveragePercent=0;TargetPeakPercent=0;NormalWindows=0;GlassWindows=0;Resolution=''
+            Offscreen=$true;NoLock=$false;ProcessExitCode=$null;Engine=$(if(Sel 'Graphics'){'Cancelled by operator'}else{'None'});ForcedStop=$true;Error=$Reason;OutputPath='';StdErrPath=''
+        }
+        Utilization=(Get-SitecLoadSummary @())
+        Sensors=@()
+        LoadSamples=@()
+    }
+}
 function Invoke-SitecFullSystemBurnIn {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Context,[Parameter(Mandatory)][string]$RunPath)
@@ -101,6 +162,14 @@ try {
         $proc=Start-Process -FilePath 'powershell.exe' -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -EncodedCommand {0}" -f $encoded) -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
         $deadline=$started.AddSeconds($watchdogSeconds)
         while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
+            if(Test-SitecCancellationRequested){
+                $elapsed=((Get-Date)-$started).TotalSeconds
+                try { & taskkill.exe /PID $proc.Id /T /F 2>$null | Out-Null } catch { try { $proc.Kill() } catch {} }
+                $reason='Benchmark cancelled by operator.'
+                Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Watchdog' -Status 'CANCELLED' -Level 'WARNING' -Message $reason -Data ([pscustomobject]@{Pid=$proc.Id;ElapsedSeconds=[math]::Round($elapsed,1)})
+                Set-SitecBurnInUiProgress -RunPath $RunPath -Percent 80 -ElapsedSeconds $elapsed -RemainingSeconds 0 -State 'CANCELLING' -Message 'Cancellation requested; benchmark process tree stopped. Finalizing partial evidence.'
+                return New-SitecBurnInCancelledResult -DurationSeconds $duration -ActualSeconds $elapsed -Reason $reason
+            }
             Start-Sleep -Milliseconds 500
         }
 
@@ -115,6 +184,11 @@ try {
 
         $exitCode=$proc.ExitCode
         $elapsed=((Get-Date)-$started).TotalSeconds
+        if(Test-SitecCancellationRequested -and -not (Test-Path -LiteralPath $resultPath)){
+            $reason='Benchmark cancelled by operator.'
+            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Watchdog' -Status 'CANCELLED' -Level 'WARNING' -Message $reason -Data ([pscustomobject]@{ExitCode=$exitCode;ElapsedSeconds=[math]::Round($elapsed,1)})
+            return New-SitecBurnInCancelledResult -DurationSeconds $duration -ActualSeconds $elapsed -Reason $reason
+        }
         if (Test-Path -LiteralPath $resultPath) {
             try {
                 $result=Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json

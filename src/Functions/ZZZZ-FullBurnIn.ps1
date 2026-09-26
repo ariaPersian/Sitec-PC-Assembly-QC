@@ -471,7 +471,14 @@ function Start-SitecBurnInProcess {
 }
 
 function Set-SitecBurnInUiProgress {
-    param([Parameter(Mandatory)][string]$RunPath,[int]$Percent,[string]$Message)
+    param(
+        [Parameter(Mandatory)][string]$RunPath,
+        [int]$Percent,
+        [string]$Message,
+        [double]$ElapsedSeconds=-1,
+        [double]$RemainingSeconds=-1,
+        [string]$State='RUNNING'
+    )
     $statusPath=Join-Path $RunPath 'status.json'
     if (-not (Test-Path -LiteralPath $statusPath)) { return }
     try {
@@ -479,9 +486,25 @@ function Set-SitecBurnInUiProgress {
         $status.Stage='Full System Burn-In'
         $status.Percent=[math]::Max(1,[math]::Min(99,$Percent))
         $status.Message=$Message
+        $status.State=$State
         $status.UpdatedAt=(Get-Date).ToString('o')
+        if($ElapsedSeconds -ge 0){
+            if($status.PSObject.Properties['BenchmarkElapsedSeconds']){$status.BenchmarkElapsedSeconds=[math]::Round($ElapsedSeconds,1)}
+            else{$status|Add-Member -NotePropertyName BenchmarkElapsedSeconds -NotePropertyValue ([math]::Round($ElapsedSeconds,1))}
+        }
+        if($RemainingSeconds -ge 0){
+            if($status.PSObject.Properties['RemainingSeconds']){$status.RemainingSeconds=[math]::Round($RemainingSeconds,1)}
+            else{$status|Add-Member -NotePropertyName RemainingSeconds -NotePropertyValue ([math]::Round($RemainingSeconds,1))}
+        }
+        if($status.PSObject.Properties['StartedAt'] -and -not [string]::IsNullOrWhiteSpace([string]$status.StartedAt)){
+            try {
+                $overallElapsed=((Get-Date)-[datetime]::Parse([string]$status.StartedAt)).TotalSeconds
+                if($status.PSObject.Properties['ElapsedSeconds']){$status.ElapsedSeconds=[math]::Round($overallElapsed,1)}
+                else{$status|Add-Member -NotePropertyName ElapsedSeconds -NotePropertyValue ([math]::Round($overallElapsed,1))}
+            } catch {}
+        }
         $tmp=$statusPath+'.burnin.tmp'
-        $status | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $tmp -Encoding UTF8
+        $status | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $tmp -Encoding UTF8
         Move-Item -LiteralPath $tmp -Destination $statusPath -Force
     } catch {}
 }

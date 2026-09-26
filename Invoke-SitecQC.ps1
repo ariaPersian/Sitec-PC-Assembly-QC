@@ -40,6 +40,9 @@ if (-not $admin) { throw 'Sitec QC must run as Administrator.' }
 
 $data=[string]$context.Settings.DataRoot
 New-Item -ItemType Directory -Path $data -Force | Out-Null
+$cancelPath=Join-Path $data 'cancel.request.json'
+$env:SITECQC_CANCEL_PATH=$cancelPath
+$pipelineStarted=Get-Date
 $runId='{0}-{1}' -f $AssetId,(Get-Date -Format 'yyyyMMdd-HHmmss')
 $assetRoot=Join-Path $data ("Assets\$AssetId")
 $runPath=Join-Path $assetRoot ("Runs\$runId")
@@ -48,8 +51,15 @@ $statusPath=Join-Path $runPath 'status.json'
 $logPath=Join-Path $runPath 'worker.log'
 Initialize-SitecDiagnostics -RunPath $runPath | Out-Null
 
-function Set-WorkerStatus([string]$Stage,[int]$Percent,[string]$Message,[string]$State='RUNNING') {
-    $o=[ordered]@{ RunId=$runId; AssetId=$AssetId; Stage=$Stage; Percent=$Percent; Message=$Message; State=$State; UpdatedAt=(Get-Date).ToString('o'); RunPath=$runPath }
+function Set-WorkerStatus([string]$Stage,[int]$Percent,[string]$Message,[string]$State='RUNNING',[Nullable[double]]$RemainingSeconds=$null) {
+    $now=Get-Date
+    $o=[ordered]@{
+        RunId=$runId;AssetId=$AssetId;Stage=$Stage;Percent=$Percent;Message=$Message;State=$State
+        StartedAt=$pipelineStarted.ToString('o');UpdatedAt=$now.ToString('o')
+        ElapsedSeconds=[math]::Round(($now-$pipelineStarted).TotalSeconds,1)
+        RemainingSeconds=$(if($null -ne $RemainingSeconds){[math]::Round([math]::Max(0,[double]$RemainingSeconds),1)}else{$null})
+        RunPath=$runPath
+    }
     $tmp=$statusPath+'.tmp'
     $o | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $tmp -Encoding UTF8
     Move-Item -LiteralPath $tmp -Destination $statusPath -Force
@@ -58,6 +68,9 @@ function Set-WorkerStatus([string]$Stage,[int]$Percent,[string]$Message,[string]
     Write-Host $line
     Write-SitecDiagnosticEvent -RunPath $runPath -Stage $Stage -Step 'Pipeline' -Status $State -Level $(if($State -eq 'ERROR'){'ERROR'}else{'INFO'}) -Message $Message
 }
+
+$hardware=$null;$physical=$null;$bom=$null;$benchmark=$null;$benchValidation=$null;$passmark=@();$security=$null;$report=$null;$run=$null
+$runStart=$pipelineStarted
 
 try {
     Set-WorkerStatus 'Inventory' 5 'Collecting hardware inventory'
@@ -100,12 +113,21 @@ try {
     $benchmark=Invoke-SitecBenchmarkSuite -Context $context -RunPath $runPath
     if (-not $benchmark.PSObject.Properties['Selection']) { $benchmark | Add-Member -NotePropertyName Selection -NotePropertyValue @($selectedBenchmarkComponents) }
     Write-SitecStepResult -RunPath $runPath -Step '50-benchmark-result' -Value $benchmark | Out-Null
-    $benchValidation=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
+    $cancelled=($benchmark.PSObject.Properties['Cancelled'] -and [bool]$benchmark.Cancelled) -or ($benchmark.BurnIn -and $benchmark.BurnIn.PSObject.Properties['Cancelled'] -and [bool]$benchmark.BurnIn.Cancelled) -or ([string]$benchmark.BurnIn.Status -eq 'CANCELLED')
+    if($cancelled){
+        $cancelMessage=if($benchmark.PSObject.Properties['CancellationReason'] -and -not [string]::IsNullOrWhiteSpace([string]$benchmark.CancellationReason)){[string]$benchmark.CancellationReason}else{'Benchmark cancelled by operator.'}
+        $benchValidation=[pscustomobject]@{
+            Status='CANCELLED'
+            Checks=@([pscustomobject]@{Name='Benchmark execution';Expected='Completed';Actual='Cancelled by operator';Passed=$false;Severity='Warning';Status='CANCELLED';Message=$cancelMessage})
+        }
+    } else {
+        $benchValidation=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
+    }
     Write-SitecStepResult -RunPath $runPath -Step '60-benchmark-validation' -Value $benchValidation | Out-Null
-    Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'Benchmark' -Status $benchValidation.Status -Level $(if($benchValidation.Status -eq 'PASS'){'INFO'}else{'ERROR'}) -Message ("Benchmark validation completed: {0}." -f $benchValidation.Status) -Data $benchValidation
+    Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'Benchmark' -Status $benchValidation.Status -Level $(if($benchValidation.Status -eq 'PASS'){'INFO'}elseif($benchValidation.Status -eq 'CANCELLED'){'WARNING'}else{'ERROR'}) -Message ("Benchmark validation completed: {0}." -f $benchValidation.Status) -Data $benchValidation
 
     $failureSummary=Write-SitecFailureSummary -RunPath $runPath -BomValidation $bom -BenchmarkValidation $benchValidation
-    $overall=if ($bom.Status -eq 'PASS' -and ($benchValidation.Status -eq 'PASS' -or $benchValidation.Status -eq 'SKIPPED')) {'PASS'} else {'FAIL'}
+    $overall=if($cancelled){'CANCELLED'}elseif ($bom.Status -eq 'PASS' -and ($benchValidation.Status -eq 'PASS' -or $benchValidation.Status -eq 'SKIPPED')) {'PASS'} else {'FAIL'}
     $run=[pscustomobject]@{
         SchemaVersion='1.2'
         AssetId=$AssetId
@@ -123,7 +145,14 @@ try {
         BenchmarkValidation=$benchValidation
         DuplicateSerials=$duplicates
         PassMarkEvidence=$passmark
-        Diagnostics=[pscustomobject]@{Events=(Join-Path $runPath 'diagnostics\events.jsonl');ProcessLog=(Join-Path $runPath 'diagnostics\process.log');FailureSummary=(Join-Path $runPath 'failure-summary.json')}
+        Diagnostics=[pscustomobject]@{Events=(Join-Path $runPath 'diagnostics\events.jsonl');ProcessLog=(Join-Path $runPath 'diagnostics\process.log');FailureSummary=(Join-Path $runPath 'failure-summary.json');FatalError=(Join-Path $runPath 'fatal-error.json');BurnInChildError=(Join-Path $runPath 'diagnostics\burnin-child-error.json')}
+        Execution=[pscustomobject]@{
+            Cancelled=$cancelled
+            CancellationReason=$(if($cancelled){$cancelMessage}else{''})
+            CancellationRequestPath=$cancelPath
+            RuntimeError=$false
+        }
+        RuntimeFailure=$null
         Security=$null
     }
 
@@ -170,23 +199,55 @@ try {
     $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runPath 'result.json') -Encoding UTF8
 
     if ($overall -eq 'PASS') {
-        Set-WorkerStatus 'Complete' 100 ("QC complete: PASS | HWID SHA-256: {0}" -f $security.HardwareIdentitySha256) 'COMPLETE'
+        Set-WorkerStatus 'Complete' 100 ("QC complete: PASS | HWID SHA-256: {0}" -f $security.HardwareIdentitySha256) 'COMPLETE' 0
+    } elseif($overall -eq 'CANCELLED') {
+        Set-WorkerStatus 'Cancelled' 100 ("Benchmark cancelled by operator | Partial evidence finalized | Full JSON preserved") 'CANCELLED' 0
     } else {
         $failedNames=@($failureSummary.Items | Where-Object Status -eq 'FAIL' | Select-Object -ExpandProperty Name)
         $short=($failedNames | Select-Object -First 3) -join '; '
-        Set-WorkerStatus 'Complete' 100 ("QC complete: FAIL | Causes: {0} | See failure-summary.json and diagnostics\process.log" -f $short) 'COMPLETE'
+        Set-WorkerStatus 'Complete' 100 ("QC complete: FAIL | Causes: {0} | See Full JSON, failure-summary.json and diagnostics\process.log" -f $short) 'COMPLETE' 0
     }
 
     if ($overall -eq 'PASS') { exit 0 } else { exit 2 }
 } catch {
     $msg=$_.Exception.Message
-    try { Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Fatal' -Step 'UnhandledException' -Status 'ERROR' -Level 'ERROR' -Message $msg -ErrorRecord $_ } catch {}
-    try { Set-WorkerStatus 'Error' 100 $msg 'ERROR' } catch {}
+    $fatal=[pscustomobject][ordered]@{
+        Timestamp=(Get-Date).ToString('o')
+        Stage='Pipeline'
+        Message=$msg
+        Type=$_.Exception.GetType().FullName
+        FullyQualifiedErrorId=[string]$_.FullyQualifiedErrorId
+        ScriptStackTrace=[string]$_.ScriptStackTrace
+        Position=[string]$_.InvocationInfo.PositionMessage
+        CategoryInfo=[string]$_.CategoryInfo
+    }
+    try { Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Fatal' -Step 'UnhandledException' -Status 'ERROR' -Level 'ERROR' -Message $msg -ErrorRecord $_ -Data $fatal } catch {}
     try {
-        $fatal=[pscustomobject]@{Timestamp=(Get-Date).ToString('o');Message=$msg;Type=$_.Exception.GetType().FullName;FullyQualifiedErrorId=$_.FullyQualifiedErrorId;ScriptStackTrace=$_.ScriptStackTrace;Position=$_.InvocationInfo.PositionMessage}
-        $fatal | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $runPath 'fatal-error.json') -Encoding UTF8
+        $fatal | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runPath 'fatal-error.json') -Encoding UTF8
         $msg | Set-Content -LiteralPath (Join-Path $runPath 'fatal-error.txt') -Encoding UTF8
     } catch {}
+
+    # Always leave a manifest/result skeleton so CompactOutput can publish a
+    # CASE-xxx-Full.json even when the QC pipeline itself crashes.
+    try {
+        if($null -eq $physical){$physical=[pscustomobject]@{CaseModel=$CaseModel;PsuModel=$PsuModel;PsuSerial=$PsuSerial.Trim();CpuAtpo=$CpuAtpo.Trim();Cooler=$Cooler.Trim();Seal1=$Seal1.Trim();Seal2=$Seal2.Trim()}}
+        if($null -eq $bom){$bom=[pscustomobject]@{Status='ERROR';Checks=@()}}
+        if($null -eq $benchmark){$benchmark=[pscustomobject]@{Selection=@($selectedBenchmarkComponents);StartedAt=$runStart.ToString('o');FinishedAt=(Get-Date).ToString('o');Cancelled=$false;RuntimeError=$true;Error=$msg}}
+        if($null -eq $benchValidation){$benchValidation=[pscustomobject]@{Status='ERROR';Checks=@([pscustomobject]@{Name='Benchmark/runtime execution';Expected='Completed';Actual=$msg;Passed=$false;Severity='Error';Status='ERROR'})}}
+        $partialRun=[pscustomobject]@{
+            SchemaVersion='1.2';AssetId=$AssetId;RunId=$runId;Operator=$Operator;StartedAt=$runStart.ToString('o');CompletedAt=(Get-Date).ToString('o');OverallStatus='ERROR'
+            Profile=$profile;Physical=$physical;Hardware=$hardware;BomValidation=$bom;BenchmarkSelection=@($selectedBenchmarkComponents);Benchmark=$benchmark;BenchmarkValidation=$benchValidation
+            DuplicateSerials=@();PassMarkEvidence=@($passmark)
+            Diagnostics=[pscustomobject]@{Events=(Join-Path $runPath 'diagnostics\events.jsonl');ProcessLog=(Join-Path $runPath 'diagnostics\process.log');FailureSummary=(Join-Path $runPath 'failure-summary.json');FatalError=(Join-Path $runPath 'fatal-error.json');BurnInChildError=(Join-Path $runPath 'diagnostics\burnin-child-error.json')}
+            Execution=[pscustomobject]@{Cancelled=$false;CancellationReason='';CancellationRequestPath=$cancelPath;RuntimeError=$true}
+            RuntimeFailure=$fatal
+            Security=$null
+        }
+        $manifest=Join-Path $runPath 'hardware-qc-manifest.json'
+        $partialRun | ConvertTo-Json -Depth 30 | Set-Content -LiteralPath $manifest -Encoding UTF8
+        [pscustomobject]@{AssetId=$AssetId;RunId=$runId;OverallStatus='ERROR';RunPath=$runPath;Manifest=$manifest;FailureSummary=(Join-Path $runPath 'failure-summary.json');Diagnostics=(Join-Path $runPath 'diagnostics');RuntimeFailure=$fatal} | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runPath 'result.json') -Encoding UTF8
+    } catch {}
+    try { Set-WorkerStatus 'Error' 100 $msg 'ERROR' 0 } catch {}
     Write-Error $_
     exit 1
 }

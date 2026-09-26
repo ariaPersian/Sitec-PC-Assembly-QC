@@ -10,6 +10,9 @@ $ErrorActionPreference='Stop';$root=Split-Path -Parent $MyInvocation.MyCommand.P
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
 $null=Initialize-SitecBaselineLayout -BaselineRoot $BaselineRoot
 if ([string]::IsNullOrWhiteSpace($WorkingRoot)) {$WorkingRoot=New-SitecWorkingRoot};New-Item -ItemType Directory -Path $WorkingRoot -Force|Out-Null
+$cancelPath=Join-Path $WorkingRoot 'cancel.request.json'
+Remove-Item -LiteralPath $cancelPath -Force -ErrorAction SilentlyContinue
+$env:SITECQC_CANCEL_PATH=$cancelPath
 $legacyWorker=Join-Path $root 'Invoke-SitecQC.ps1';function Q([string]$s){'"'+($s-replace '"','\"')+'"'}
 function Save-ExactFailure([string]$Message,[System.Exception]$Exception,[string]$Phase){
     $out=Join-Path $BaselineRoot 'Output';New-Item -ItemType Directory -Path $out -Force|Out-Null
@@ -34,17 +37,46 @@ try {
         }
         $phase='publishing PDF';$publishedPdf=$null
         if(Test-Path $sourcePdf){$publishedPdf=Publish-SitecCertificate -BaselineRoot $BaselineRoot -AssetId $AssetId -SourcePdf $sourcePdf}
-        $phase='publishing Full JSON';$publishedBaseline=$null
+        $phase='publishing Full JSON';$publishedBaseline=$null;$publishedFull=$null
         if(Test-Path $manifestPath){
-            $publishedBaseline=Publish-SitecBaselineJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -CertificatePath $publishedPdf
-            [void](Publish-SitecFullJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -ResultPath $resultPath -CertificatePath $publishedPdf -BaselinePath $publishedBaseline)
-            if($publishedBaseline -and(Test-Path $publishedBaseline)){Remove-Item $publishedBaseline -Force -ErrorAction SilentlyContinue}
+            # Full JSON is the authoritative machine-readable evidence and must be
+            # published even when a runtime error left only a partial manifest.
+            try {
+                $publishedFull=Publish-SitecFullJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -ResultPath $resultPath -CertificatePath $publishedPdf -BaselinePath ''
+            } catch {
+                $fullFallback=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $AssetId
+                $raw=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if(-not $raw.PSObject.Properties['FullExportSchema']){$raw|Add-Member -NotePropertyName FullExportSchema -NotePropertyValue 'SITEC-QC-FULL-V1'}
+                $raw | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath $fullFallback -Encoding UTF8
+                $publishedFull=$fullFallback
+            }
+            try {
+                $manifestObject=Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if($manifestObject.Hardware -and $manifestObject.Physical -and $manifestObject.Security){
+                    $publishedBaseline=Publish-SitecBaselineJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -CertificatePath $publishedPdf
+                }
+            } catch {}
+            if($publishedBaseline -and(Test-Path $publishedBaseline)){
+                try {
+                    # Re-publish once with the temporary Baseline filename embedded,
+                    # then keep the current compact-output behavior.
+                    $publishedFull=Publish-SitecFullJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -ResultPath $resultPath -CertificatePath $publishedPdf -BaselinePath $publishedBaseline
+                } catch {}
+                Remove-Item $publishedBaseline -Force -ErrorAction SilentlyContinue
+            }
         }
 
         if($script:exitCode -notin @(0,2)){
             $phase='saving runtime failure evidence'
             [void](Save-SitecSupportBundle -BaselineRoot $BaselineRoot -AssetId $AssetId -RunPath $runDir.FullName)
-            Save-ExactFailure ('QC worker runtime error; exit code '+$script:exitCode) $null $phase
+            $runtimeMessage='QC worker runtime error; exit code '+$script:exitCode
+            if($publishedFull -and (Test-Path -LiteralPath $publishedFull)){
+                try {
+                    $fj=Get-Content -LiteralPath $publishedFull -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if($fj.PSObject.Properties['ErrorSummary'] -and $fj.ErrorSummary -and -not [string]::IsNullOrWhiteSpace([string]$fj.ErrorSummary.PrimaryMessage)){$runtimeMessage=[string]$fj.ErrorSummary.PrimaryMessage}
+                } catch {}
+            }
+            Save-ExactFailure $runtimeMessage $null $phase
         } else {
             # Exit 0 = QC PASS; exit 2 = completed QC with one or more failed gates.
             # Neither is an application/runtime error, so stale runtime-failure evidence
