@@ -173,7 +173,11 @@ function Publish-SitecFullJson {
     $runPath=Split-Path -Parent $ManifestPath
     $errorDetails=@(Get-SitecFullErrorDetails -Run $run -RunPath $runPath)
     $primaryMessage=''
-    $primaryDetail=$errorDetails | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Message) } | Select-Object -First 1
+    $primaryDetail=$null
+    if([string]$run.OverallStatus -eq 'ERROR'){
+        $primaryDetail=$errorDetails | Where-Object { $_.Source -in @('BurnInChild','UnhandledException','RuntimeFailure','RuntimeResult') -and -not [string]::IsNullOrWhiteSpace([string]$_.Message) } | Select-Object -First 1
+    }
+    if($null -eq $primaryDetail){$primaryDetail=$errorDetails | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Message) } | Select-Object -First 1}
     if ($primaryDetail) { $primaryMessage=[string]$primaryDetail.Message }
     $errorSummary=[pscustomobject][ordered]@{
         HasErrors=([string]$run.OverallStatus -ne 'PASS' -or $errorDetails.Count -gt 0)
@@ -193,15 +197,18 @@ function Publish-SitecFullJson {
     $cancelled=$false
     if($run.PSObject.Properties['BenchmarkValidation'] -and $run.BenchmarkValidation -and $run.BenchmarkValidation.PSObject.Properties['Status']){$benchmarkStatus=[string]$run.BenchmarkValidation.Status}
     if($run.PSObject.Properties['Benchmark'] -and $run.Benchmark -and $run.Benchmark.PSObject.Properties['Cancelled']){$cancelled=[bool]$run.Benchmark.Cancelled}
+    $benchmarkPrimary=$benchmarkFailureDetails | Where-Object { $_.Source -eq 'BurnInChild' -and -not [string]::IsNullOrWhiteSpace([string]$_.Message) } | Select-Object -First 1
+    if($null -eq $benchmarkPrimary){$benchmarkPrimary=$benchmarkFailureDetails | Where-Object { $_.Source -eq 'RuntimeResult' -and -not [string]::IsNullOrWhiteSpace([string]$_.Message) } | Select-Object -First 1}
+    if($null -eq $benchmarkPrimary){$benchmarkPrimary=$benchmarkFailureDetails | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Message) } | Select-Object -First 1}
     $benchmarkFailure=[pscustomobject][ordered]@{
         HasFailure=($benchmarkStatus -notin @('','PASS','SKIPPED') -or $benchmarkFailureDetails.Count -gt 0)
         Status=$benchmarkStatus
         Cancelled=$cancelled
-        Message=$(if($benchmarkFailureDetails.Count -gt 0){[string]$benchmarkFailureDetails[0].Message}else{''})
-        ExceptionType=$(if($benchmarkFailureDetails.Count -gt 0){[string]$benchmarkFailureDetails[0].ExceptionType}else{''})
-        FullyQualifiedErrorId=$(if($benchmarkFailureDetails.Count -gt 0){[string]$benchmarkFailureDetails[0].FullyQualifiedErrorId}else{''})
-        ScriptStackTrace=$(if($benchmarkFailureDetails.Count -gt 0){[string]$benchmarkFailureDetails[0].ScriptStackTrace}else{''})
-        PositionMessage=$(if($benchmarkFailureDetails.Count -gt 0){[string]$benchmarkFailureDetails[0].PositionMessage}else{''})
+        Message=$(if($benchmarkPrimary){[string]$benchmarkPrimary.Message}else{''})
+        ExceptionType=$(if($benchmarkPrimary){[string]$benchmarkPrimary.ExceptionType}else{''})
+        FullyQualifiedErrorId=$(if($benchmarkPrimary){[string]$benchmarkPrimary.FullyQualifiedErrorId}else{''})
+        ScriptStackTrace=$(if($benchmarkPrimary){[string]$benchmarkPrimary.ScriptStackTrace}else{''})
+        PositionMessage=$(if($benchmarkPrimary){[string]$benchmarkPrimary.PositionMessage}else{''})
         Details=$benchmarkFailureDetails
     }
     if($run.PSObject.Properties['BenchmarkFailure']){$run.BenchmarkFailure=$benchmarkFailure}else{$run|Add-Member -NotePropertyName BenchmarkFailure -NotePropertyValue $benchmarkFailure}
