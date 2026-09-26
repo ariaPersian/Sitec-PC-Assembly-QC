@@ -164,9 +164,14 @@ function New-SitecCustomerReport {
                 $requestedMB=if($stress.MemoryVerification.PSObject.Properties['RequestedMB']){$stress.MemoryVerification.RequestedMB}else{$stress.MemoryVerification.AllocatedMB}
                 $burnPairs += [pscustomobject]@{Label='RAM requested / allocated';Value=("{0} MB / {1} MB" -f $requestedMB,$stress.MemoryVerification.AllocatedMB)}
                 $targetUsage=''
-                if($stress.MemoryVerification.PSObject.Properties['TargetSystemUsagePercent'] -and $null -ne $stress.MemoryVerification.TargetSystemUsagePercent){$targetUsage="$($stress.MemoryVerification.TargetSystemUsagePercent)%"}
-                $allocationMode=if($stress.MemoryVerification.PSObject.Properties['AllocationMode']){[string]$stress.MemoryVerification.AllocationMode}else{'Legacy'}
+                if($stress.MemoryVerification.PSObject.Properties['ExpectedSystemUsagePercent'] -and $null -ne $stress.MemoryVerification.ExpectedSystemUsagePercent){$targetUsage="$($stress.MemoryVerification.ExpectedSystemUsagePercent)%"}
+                elseif($stress.MemoryVerification.PSObject.Properties['TargetSystemUsagePercent'] -and $null -ne $stress.MemoryVerification.TargetSystemUsagePercent){$targetUsage="$($stress.MemoryVerification.TargetSystemUsagePercent)%"}
+                $allocationMode=if($stress.MemoryVerification.PSObject.Properties['CoverageMode']){[string]$stress.MemoryVerification.CoverageMode}elseif($stress.MemoryVerification.PSObject.Properties['AllocationMode']){[string]$stress.MemoryVerification.AllocationMode}else{'Legacy'}
                 if(-not [string]::IsNullOrWhiteSpace($targetUsage)){$burnPairs += [pscustomobject]@{Label='RAM pressure target / mode';Value=("$targetUsage / $allocationMode")}}
+                if($stress.MemoryVerification.PSObject.Properties['AllocationCoveragePercent']){
+                    $coverageTarget=if($stress.MemoryVerification.PSObject.Properties['SafeCoverageTargetMB']){" of $($stress.MemoryVerification.SafeCoverageTargetMB) MB safe target"}else{''}
+                    $burnPairs += [pscustomobject]@{Label='RAM safe allocation coverage';Value=("$($stress.MemoryVerification.AllocationCoveragePercent)%$coverageTarget")}
+                }
                 $burnPairs += [pscustomobject]@{Label='RAM verified / errors';Value=("{0} MB / {1}" -f $stress.MemoryVerification.VerifiedMB,$stress.MemoryVerification.Errors)}
             }
             if ($selection -contains 'Disk') {
