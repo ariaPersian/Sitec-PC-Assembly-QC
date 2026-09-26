@@ -47,13 +47,13 @@ $burnIn=[pscustomobject]@{
     CpuStress=[pscustomobject]@{Enabled=$true;Status='PASS';CoverageMode='MaximumSafe';Seconds=480;LogicalProcessors=28;Threads=28;ThreadCoveragePercent=100;DutyPercent=100;HashWorkMBps=1234;WorkUnitsPerSecond=1234;Iterations=1000000}
     MemoryVerification=[pscustomobject]@{Enabled=$true;Status='PASS';RequestedMB=10000;AllocatedMB=10000;VerifiedMB=900000;Errors=0;Seconds=480;Passes=100;CoverageMode='MaximumSafe';TargetSystemUsagePercent=90;ExpectedSystemUsagePercent=90;SafeCoverageTargetMB=10000;AllocationCoveragePercent=100;ReserveMB=2048}
     DiskStress=[pscustomobject]@{Enabled=$true;Status='PASS';CoverageMode='MaximumSafe';ReadMBps=3500;ReadIOPS=55000;AverageReadLatencyMs=0.4;TargetSizeMB=16384;BlockSizeKB=64;QueueDepth=32;Threads=4;WritePercent=0}
-    GraphicsStress=[pscustomobject]@{Enabled=$true;Required=$true;Status='PASS';CoverageMode='MaximumSafe';TargetPeakPercent=80;Engine='WinSAT DWM composition workload'}
+    GraphicsStress=[pscustomobject]@{Enabled=$true;Required=$true;Status='PASS';CoverageMode='MaximumSafe';WorkloadMode='Direct3D-ALU';TargetAveragePercent=70;TargetPeakPercent=90;Engine='WinSAT Direct3D ALU maximum-load workload'}
     Utilization=[pscustomobject]@{
         SampleCount=96
         CPU=[pscustomobject]@{Average=96.2;Peak=100;Samples=96}
         Memory=[pscustomobject]@{Average=88.4;Peak=92.1;Samples=96}
         Disk=[pscustomobject]@{Average=92.1;Peak=100;Samples=96}
-        GPU=[pscustomobject]@{Average=55.5;Peak=85.0;Samples=96}
+        GPU=[pscustomobject]@{Average=78.0;Peak=96.0;Samples=96}
     }
     Sensors=@();LoadSamples=@()
 }

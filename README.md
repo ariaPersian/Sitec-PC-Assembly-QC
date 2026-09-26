@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.14.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR semantics**.
+Current production workflow: **v3.14.1 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -112,7 +112,7 @@ Production QC combines:
 - **MaximumSafe CPU:** 100% requested duty on every logical processor, with explicit 100% thread-coverage and sustained/peak utilization gates;
 - **MaximumSafe RAM:** deterministic write/verify consumes almost all currently free physical RAM while keeping a dynamic safety reserve of 5% of installed memory, clamped to 2-4 GB; on a typical 64 GB system with about 12 GB already in use, approximately 49-50 GB is requested;
 - **MaximumSafe NVMe:** Microsoft DiskSpd uses uncached/write-through I/O, high queue depth and a 4-16 GB temporary test file sized from available free space. Burn-in is intentionally read-only to saturate the controller/NAND without repeatedly overwriting the full SSD; short qualification tests still verify write throughput;
-- **MaximumSafe GPU:** an aggressive off-screen, fill-bound WinSAT DWM workload is driven at 1920x1080 with higher window counts, and measured GPU average/peak utilization becomes a required gate when Graphics is selected;
+- **MaximumSafe GPU:** WinSAT Direct3D ALU runs off-screen at 1920x1080 as the production graphics stress workload; when Graphics is selected it is a required gate with >=70% average and >=90% peak measured GPU utilization;
 - concurrent burn-in using only the selected CPU/RAM/NVMe/graphics workloads;
 - Windows WHEA hardware-error monitoring;
 - LibreHardwareMonitor sensor sampling when supported;
