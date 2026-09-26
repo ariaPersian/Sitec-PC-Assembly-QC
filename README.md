@@ -117,7 +117,7 @@ Production QC combines:
 - LibreHardwareMonitor sensor sampling when supported;
 - optional PassMark/BurnInTest supporting evidence.
 
-Runtime benchmark XML/log/HTML files are temporary and are removed after completion. A failed run may keep one `LastFailure.zip` under `Output` for troubleshooting.
+Runtime benchmark XML/log/HTML files are temporary and are removed after completion. Only a real application/runtime fault may keep one `LastFailure.zip` under `Output` for troubleshooting; a completed QC `FAIL` does not.
 
 ## Output
 
