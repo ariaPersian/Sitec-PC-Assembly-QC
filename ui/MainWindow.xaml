@@ -49,12 +49,34 @@
 
         <Button x:Name="BtnDetect" Content="Refresh Hardware" Height="38" Margin="0,0,0,8"/>
         <Button x:Name="BtnRun" Content="RUN SELECTED QC + FINALIZE" Height="52" FontWeight="Bold" FontSize="15" Background="#137C3D" Foreground="White"/>
+        <Button x:Name="BtnCancel" Content="CANCEL BENCHMARK" Height="42" Margin="0,8,0,0" FontWeight="Bold" Background="#B42318" Foreground="White" IsEnabled="False" Visibility="Collapsed" ToolTip="Stops the active benchmark safely and preserves partial QC evidence and Full JSON."/>
       </StackPanel></ScrollViewer>
 
       <Grid Grid.Column="2">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="230"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <GroupBox Header="Detected hardware" Grid.Row="0" Padding="10" Margin="0,0,0,10"><TextBox x:Name="TxtHardware" Height="190" IsReadOnly="True" FontFamily="Consolas" TextWrapping="NoWrap" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/></GroupBox>
-        <GroupBox Header="QC progress" Grid.Row="1" Padding="10" Margin="0,0,0,10"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock x:Name="TxtStage" Text="Preparing" FontSize="18" FontWeight="SemiBold"/><ProgressBar x:Name="ProgressQc" Grid.Row="1" Height="24" Minimum="0" Maximum="100" Value="0" Margin="0,8"/><TextBlock x:Name="TxtMessage" Grid.Row="2" TextWrapping="Wrap" Foreground="#445"/></Grid></GroupBox>
+        <GroupBox Header="QC progress" Grid.Row="1" Padding="10" Margin="0,0,0,10">
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+              <TextBlock x:Name="TxtStage" Text="Preparing" FontSize="18" FontWeight="SemiBold"/>
+              <TextBlock x:Name="TxtProgressPercent" Grid.Column="1" Text="0%" FontSize="18" FontWeight="Bold" Foreground="#137C3D" Margin="12,0,0,0"/>
+            </Grid>
+            <ProgressBar x:Name="ProgressQc" Grid.Row="1" Height="24" Minimum="0" Maximum="100" Value="0" Margin="0,8"/>
+            <Grid Grid.Row="2" Margin="0,0,0,8">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+              <TextBlock x:Name="TxtElapsed" Text="Elapsed: 00:00" Foreground="#445"/>
+              <TextBlock x:Name="TxtRemaining" Grid.Column="1" Text="Remaining: --:--" Foreground="#445" HorizontalAlignment="Right"/>
+            </Grid>
+            <TextBlock x:Name="TxtMessage" Grid.Row="3" TextWrapping="Wrap" Foreground="#445"/>
+          </Grid>
+        </GroupBox>
         <TextBlock Grid.Row="2" Text="Worker log" FontWeight="Bold" Margin="0,0,0,4"/>
         <TextBox x:Name="TxtLog" Grid.Row="3" IsReadOnly="True" FontFamily="Consolas" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" AcceptsReturn="True"/>
       </Grid>
