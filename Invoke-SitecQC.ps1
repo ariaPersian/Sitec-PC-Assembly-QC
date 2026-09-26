@@ -93,26 +93,16 @@ try {
 
     $runStart=Get-Date
     $passmark=@(Import-SitecPassMarkEvidence -Context $context -RunPath $runPath -Since $runStart -AssetId $AssetId)
-    if ($bom.Status -eq 'PASS' -or $ContinueBenchmarkOnBomFailure) {
-        Set-WorkerStatus 'Benchmark' 28 'Running performance qualification and concurrent full-system burn-in'
-        $benchmark=Invoke-SitecBenchmarkSuite -Context $context -RunPath $runPath
-        if (-not $benchmark.PSObject.Properties['Selection']) { $benchmark | Add-Member -NotePropertyName Selection -NotePropertyValue @($selectedBenchmarkComponents) }
-        Write-SitecStepResult -RunPath $runPath -Step '50-benchmark-result' -Value $benchmark | Out-Null
-        $benchValidation=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
-        Write-SitecStepResult -RunPath $runPath -Step '60-benchmark-validation' -Value $benchValidation | Out-Null
-        Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'Benchmark' -Status $benchValidation.Status -Level $(if($benchValidation.Status -eq 'PASS'){'INFO'}else{'ERROR'}) -Message ("Benchmark validation completed: {0}." -f $benchValidation.Status) -Data $benchValidation
-    } else {
-        Set-WorkerStatus 'Benchmark' 55 'Benchmark skipped because expected BOM validation failed'
-        $benchmark=[pscustomobject]@{
-            Selection=@($selectedBenchmarkComponents)
-            StartedAt=$null;FinishedAt=$null
-            WinSAT=[pscustomobject]@{Available=$false;Status='SKIPPED';CpuCompressionMBps=$null;MemoryMBps=$null}
-            Stress=[pscustomobject]@{Status='SKIPPED';CpuStress=[pscustomobject]@{Seconds=0;Threads=0;HashWorkMBps=0;Iterations=0};MemoryVerification=[pscustomobject]@{RequestedMB=0;VerifiedMB=0;Errors=0;Seconds=0};Sensors=@()}
-            DiskSpd=[pscustomobject]@{Available=$false;Required=$false;Status='SKIPPED';SequentialReadMBps=$null;SequentialWriteMBps=$null;RandomReadIOPS=$null}
-            WHEA=[pscustomobject]@{Count=0;Events=@()}
-        }
-        $benchValidation=[pscustomobject]@{Status='SKIPPED';Checks=@(New-SitecCheck -Name 'Benchmark suite' -Expected 'BOM PASS before benchmark' -Actual 'Skipped because BOM failed' -Passed $false -Severity 'Warning')}
-    }
+    # Benchmark execution is intentionally independent from expected-BOM validation.
+    # A BOM mismatch still fails OverallStatus, but it must never suppress the
+    # operator-selected CPU/RAM/Storage/Graphics qualification.
+    Set-WorkerStatus 'Benchmark' 28 $(if($bom.Status -eq 'PASS'){'Running selected performance qualification and burn-in'}else{'BOM validation failed; running selected benchmarks independently'})
+    $benchmark=Invoke-SitecBenchmarkSuite -Context $context -RunPath $runPath
+    if (-not $benchmark.PSObject.Properties['Selection']) { $benchmark | Add-Member -NotePropertyName Selection -NotePropertyValue @($selectedBenchmarkComponents) }
+    Write-SitecStepResult -RunPath $runPath -Step '50-benchmark-result' -Value $benchmark | Out-Null
+    $benchValidation=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
+    Write-SitecStepResult -RunPath $runPath -Step '60-benchmark-validation' -Value $benchValidation | Out-Null
+    Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'Benchmark' -Status $benchValidation.Status -Level $(if($benchValidation.Status -eq 'PASS'){'INFO'}else{'ERROR'}) -Message ("Benchmark validation completed: {0}." -f $benchValidation.Status) -Data $benchValidation
 
     $failureSummary=Write-SitecFailureSummary -RunPath $runPath -BomValidation $bom -BenchmarkValidation $benchValidation
     $overall=if ($bom.Status -eq 'PASS' -and ($benchValidation.Status -eq 'PASS' -or $benchValidation.Status -eq 'SKIPPED')) {'PASS'} else {'FAIL'}
