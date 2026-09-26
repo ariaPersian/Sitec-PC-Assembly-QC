@@ -9,11 +9,11 @@ if ($worker -match [regex]::Escape("Benchmark skipped because expected BOM valid
 if ($worker -match [regex]::Escape('if ($bom.Status -eq ''PASS'' -or $ContinueBenchmarkOnBomFailure)')) {
     throw 'Benchmark execution is still conditionally gated by BOM status.'
 }
-if ($worker -notmatch [regex]::Escape("BOM profile mismatch recorded; running selected hardware QC normally")) {
-    throw 'Independent advisory-BOM/benchmark execution status is not present.'
+if ($worker -notmatch [regex]::Escape("Profile mismatch recorded as advisory; running selected hardware QC normally")) {
+    throw 'Independent optional-profile/benchmark execution status is not present.'
 }
-if ($worker -notmatch [regex]::Escape("Blocking BOM/identity validation failed; running selected benchmarks independently")) {
-    throw 'Independent blocking-BOM/benchmark execution status is not present.'
+if ($worker -notmatch [regex]::Escape("Identity/integrity validation failed; running selected benchmarks independently")) {
+    throw 'Independent blocking identity/benchmark execution status is not present.'
 }
 
 $start=Get-Content -LiteralPath (Join-Path $root 'Start-SitecQC.ps1') -Raw -Encoding UTF8
@@ -24,9 +24,9 @@ if ($start -notmatch [regex]::Escape("'-BenchmarkComponents',(Q `$benchmarkCsv)"
     throw 'Operator benchmark selection forwarding was lost.'
 }
 
-$profile=Get-Content -LiteralPath (Join-Path $root 'profiles\B760-14700K-990PRO.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if ([string]$profile.Expected.CpuModelContains -ne 'i7-14700K') {
-    throw 'Expected CPU BOM validation was removed or changed.'
+$profile=Get-Content -LiteralPath (Join-Path $root 'profiles\B760-13700K-64GB-990PRO.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+if ([string]$profile.Expected.CpuModelContains -ne 'i7-13700K' -or [double]$profile.Expected.MemoryTotalGB -ne 64) {
+    throw 'Current production profile does not match the 13700K / 64 GB reference PC.'
 }
 
 $report=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZZZZ-ReportTwoPage.ps1') -Raw -Encoding UTF8

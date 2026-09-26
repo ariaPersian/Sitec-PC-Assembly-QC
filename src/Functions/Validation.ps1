@@ -10,7 +10,7 @@ function New-SitecCheck {
     }
 }
 
-function Test-SitecExpectedBom {
+function Test-SitecProfileConformance {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]$Hardware,
@@ -18,51 +18,67 @@ function Test-SitecExpectedBom {
         [Parameter(Mandatory)]$Profile
     )
 
-    # BOM conformance and hardware health are separate concerns. In Advisory
-    # mode, expected configuration differences remain visible as WARNING/MISMATCH
-    # but do not make a healthy machine fail QC. Identity/integrity checks remain
-    # blocking in every mode.
-    $mode='Strict'
-    if ($Profile.PSObject.Properties['BomPolicy'] -and $Profile.BomPolicy -and $Profile.BomPolicy.PSObject.Properties['Mode']) {
-        $mode=[string]$Profile.BomPolicy.Mode
-    }
-    if($mode -notin @('Strict','Advisory')){$mode='Strict'}
-    $specSeverity=if($mode -eq 'Advisory'){'Warning'}else{'Error'}
-
+    # Profile comparison is informational/advisory by design. It answers
+    # "does this assembled PC match the selected production recipe?" without
+    # deciding whether otherwise healthy hardware passes QC.
     $e=$Profile.Expected
     $checks=@()
+    $severity='Warning'
 
-    $checks += New-SitecCheck 'Case model' ([string]$e.CaseModel) ([string]$Physical.CaseModel) ([string]$Physical.CaseModel -eq [string]$e.CaseModel) $specSeverity
-    $checks += New-SitecCheck 'PSU model' ([string]$e.PsuModel) ([string]$Physical.PsuModel) ([string]$Physical.PsuModel -eq [string]$e.PsuModel) $specSeverity
-    $checks += New-SitecCheck 'Motherboard model' ([string]$e.MotherboardModelContains) ([string]$Hardware.Motherboard.Model) ([string]$Hardware.Motherboard.Model -like ('*' + [string]$e.MotherboardModelContains + '*')) $specSeverity
-    $checks += New-SitecCheck 'CPU model' ([string]$e.CpuModelContains) ([string]$Hardware.CPU.Model) ([string]$Hardware.CPU.Model -like ('*' + [string]$e.CpuModelContains + '*')) $specSeverity
-    $checks += New-SitecCheck 'RAM total' ("$($e.MemoryTotalGB) GB") ("$($Hardware.MemoryTotalGB) GB") ([double]$Hardware.MemoryTotalGB -eq [double]$e.MemoryTotalGB) $specSeverity
+    $checks += New-SitecCheck 'Case model' ([string]$e.CaseModel) ([string]$Physical.CaseModel) ([string]$Physical.CaseModel -eq [string]$e.CaseModel) $severity
+    $checks += New-SitecCheck 'PSU model' ([string]$e.PsuModel) ([string]$Physical.PsuModel) ([string]$Physical.PsuModel -eq [string]$e.PsuModel) $severity
+    $checks += New-SitecCheck 'Motherboard model' ([string]$e.MotherboardModelContains) ([string]$Hardware.Motherboard.Model) ([string]$Hardware.Motherboard.Model -like ('*' + [string]$e.MotherboardModelContains + '*')) $severity
+    $checks += New-SitecCheck 'CPU model' ([string]$e.CpuModelContains) ([string]$Hardware.CPU.Model) ([string]$Hardware.CPU.Model -like ('*' + [string]$e.CpuModelContains + '*')) $severity
+    $checks += New-SitecCheck 'RAM total' ("$($e.MemoryTotalGB) GB") ("$($Hardware.MemoryTotalGB) GB") ([double]$Hardware.MemoryTotalGB -eq [double]$e.MemoryTotalGB) $severity
 
     $ramTypes=@($Hardware.Memory | Select-Object -ExpandProperty Type -Unique)
-    $checks += New-SitecCheck 'RAM type' ([string]$e.MemoryType) ($ramTypes -join ', ') ($ramTypes -contains [string]$e.MemoryType) $specSeverity
+    $checks += New-SitecCheck 'RAM type' ([string]$e.MemoryType) ($ramTypes -join ', ') ($ramTypes -contains [string]$e.MemoryType) $severity
 
     $speedMeasurement=$Hardware.Memory | Measure-Object ConfiguredSpeedMHz -Minimum
     $minSpeed=if ($null -ne $speedMeasurement.Minimum) {[int]$speedMeasurement.Minimum} else {0}
-    $checks += New-SitecCheck 'RAM configured speed' (">= $($e.MemoryMinimumConfiguredSpeedMHz) MHz") ("$minSpeed MHz") ($minSpeed -ge [int]$e.MemoryMinimumConfiguredSpeedMHz) $specSeverity
+    $checks += New-SitecCheck 'RAM configured speed' (">= $($e.MemoryMinimumConfiguredSpeedMHz) MHz") ("$minSpeed MHz") ($minSpeed -ge [int]$e.MemoryMinimumConfiguredSpeedMHz) $severity
 
     $storage=@($Hardware.Storage | Where-Object {
         $_.Model -like ('*' + [string]$e.StorageModelContains + '*') -or
         $_.FriendlyName -like ('*' + [string]$e.StorageModelContains + '*')
     })
-    $checks += New-SitecCheck 'Storage model' ([string]$e.StorageModelContains) (($Hardware.Storage | Select-Object -ExpandProperty Model) -join '; ') ($storage.Count -gt 0) $specSeverity
+    $checks += New-SitecCheck 'Storage model' ([string]$e.StorageModelContains) (($Hardware.Storage | Select-Object -ExpandProperty Model) -join '; ') ($storage.Count -gt 0) $severity
     $storageMeasurement=$Hardware.Storage | Measure-Object SizeGB -Maximum
     $largest=if ($null -ne $storageMeasurement.Maximum) {[double]$storageMeasurement.Maximum} else {0}
-    $checks += New-SitecCheck 'Storage capacity' (">= $($e.StorageMinimumSizeGB) GB") ("$largest GB") ($largest -ge [double]$e.StorageMinimumSizeGB) $specSeverity
+    $checks += New-SitecCheck 'Storage capacity' (">= $($e.StorageMinimumSizeGB) GB") ("$largest GB") ($largest -ge [double]$e.StorageMinimumSizeGB) $severity
 
     if (-not [string]::IsNullOrWhiteSpace([string]$e.GpuModelContains)) {
         $gpuMatch=@($Hardware.Graphics | Where-Object { $_.Name -like ('*' + [string]$e.GpuModelContains + '*') })
-        $checks += New-SitecCheck 'Graphics' ([string]$e.GpuModelContains) (($Hardware.Graphics | Select-Object -ExpandProperty Name) -join '; ') ($gpuMatch.Count -gt 0) 'Warning'
+        $checks += New-SitecCheck 'Graphics' ([string]$e.GpuModelContains) (($Hardware.Graphics | Select-Object -ExpandProperty Name) -join '; ') ($gpuMatch.Count -gt 0) $severity
     }
 
     if (-not [string]::IsNullOrWhiteSpace([string]$e.CpuCoolerModel)) {
-        $checks += New-SitecCheck 'CPU cooler' ([string]$e.CpuCoolerModel) ([string]$Physical.Cooler) ([string]$Physical.Cooler -eq [string]$e.CpuCoolerModel) $specSeverity
+        $checks += New-SitecCheck 'CPU cooler' ([string]$e.CpuCoolerModel) ([string]$Physical.Cooler) ([string]$Physical.Cooler -eq [string]$e.CpuCoolerModel) $severity
     }
 
+    $mismatches=@($checks | Where-Object { -not $_.Passed })
+    [pscustomobject]@{
+        Enabled=$true
+        ProfileId=[string]$Profile.ProfileId
+        ProfileVersion=[string]$Profile.ProfileVersion
+        Status=$(if($mismatches.Count -eq 0){'MATCH'}else{'MISMATCH'})
+        MismatchCount=$mismatches.Count
+        Checks=@($checks)
+    }
+}
+
+function Test-SitecHardwareIdentity {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Hardware,
+        [Parameter(Mandatory)]$Physical,
+        [Parameter(Mandatory)]$Profile
+    )
+
+    # Identity/integrity requirements are independent from optional profile
+    # matching. These checks remain blocking because they establish traceable
+    # serialized hardware evidence and basic device health.
+    $checks=@()
     $capture=$Profile.Capture
     $requirePsuSerial=if ($null -eq $capture) {$true} else {[bool]$capture.RequirePsuSerial}
     $requireCpuAtpo=if ($null -eq $capture) {$true} else {[bool]$capture.RequireCpuAtpo}
@@ -89,6 +105,40 @@ function Test-SitecExpectedBom {
         $checks += New-SitecCheck 'PnP device errors' '0' ([string]@($Hardware.PnPErrors).Count) $false 'Error'
     }
 
+    $failed=@($checks | Where-Object { -not $_.Passed })
+    [pscustomobject]@{
+        Status=$(if($failed.Count -eq 0){'PASS'}else{'FAIL'})
+        FailureCount=$failed.Count
+        Checks=@($checks)
+    }
+}
+
+function Test-SitecExpectedBom {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]$Hardware,
+        [Parameter(Mandatory)]$Physical,
+        [Parameter(Mandatory)]$Profile
+    )
+
+    # Compatibility wrapper for direct/script callers. Production execution now
+    # records identity and optional profile comparison separately.
+    $identity=Test-SitecHardwareIdentity -Hardware $Hardware -Physical $Physical -Profile $Profile
+    $profileComparison=Test-SitecProfileConformance -Hardware $Hardware -Physical $Physical -Profile $Profile
+    $mode='Strict'
+    if ($Profile.PSObject.Properties['BomPolicy'] -and $Profile.BomPolicy -and $Profile.BomPolicy.PSObject.Properties['Mode']) {
+        $mode=[string]$Profile.BomPolicy.Mode
+    }
+    if($mode -notin @('Strict','Advisory')){$mode='Strict'}
+
+    $profileChecks=@($profileComparison.Checks)
+    if($mode -eq 'Strict'){
+        $profileChecks=@($profileChecks | ForEach-Object {
+            New-SitecCheck -Name ([string]$_.Name) -Expected ([string]$_.Expected) -Actual ([string]$_.Actual) -Passed ([bool]$_.Passed) -Severity 'Error'
+        })
+    }
+
+    $checks=@($identity.Checks)+@($profileChecks)
     $blockingFailed=@($checks | Where-Object { -not $_.Passed -and $_.Severity -ne 'Warning' })
     $advisoryMismatch=@($checks | Where-Object { -not $_.Passed -and $_.Severity -eq 'Warning' })
     $status=if($blockingFailed.Count -gt 0){'FAIL'}elseif($advisoryMismatch.Count -gt 0){'MISMATCH'}else{'PASS'}
@@ -96,12 +146,13 @@ function Test-SitecExpectedBom {
         Status=$status
         Mode=$mode
         BlockingStatus=$(if($blockingFailed.Count -eq 0){'PASS'}else{'FAIL'})
-        ConformanceStatus=$(if($advisoryMismatch.Count -eq 0){'MATCH'}else{'MISMATCH'})
+        ConformanceStatus=$(if($profileComparison.Status -eq 'MISMATCH'){'MISMATCH'}else{'MATCH'})
         BlockingFailureCount=$blockingFailed.Count
-        MismatchCount=$advisoryMismatch.Count
+        MismatchCount=$profileComparison.MismatchCount
         Checks=$checks
     }
 }
+
 function Test-SitecBenchmarkResults {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Benchmark,[Parameter(Mandatory)]$Profile)

@@ -39,7 +39,7 @@ function C([string]$n){$window.FindName($n)}
 
 $TxtAssetId=C 'TxtAssetId'
 $TxtProfileDisplay=C 'TxtProfileDisplay'
-$TxtExpectedSummary=C 'TxtExpectedSummary'
+$ChkProfileComparison=C 'ChkProfileComparison'
 $TxtPsuSerial=C 'TxtPsuSerial'
 $TxtCpuAtpo=C 'TxtCpuAtpo'
 $TxtSeal1=C 'TxtSeal1'
@@ -63,9 +63,30 @@ $TxtHeaderStatus=C 'TxtHeaderStatus'
 $TxtFooter=C 'TxtFooter'
 
 $TxtProfileDisplay.Text=[string]$profile.ProfileId + ' v' + [string]$profile.ProfileVersion
-$expectedParts=@([string]$profile.Expected.CaseModel,[string]$profile.Expected.PsuModel,[string]$profile.Expected.CpuCoolerModel) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-$TxtExpectedSummary.Text=$expectedParts -join ' | '
-$TxtFooter.Text="Local baseline folder: $BaselineRoot  |  Connect the company USB only after QC is finished and SitecQC is closed."
+$profileTooltipLines=@(
+    ("Profile: {0} v{1}" -f $profile.ProfileId,$profile.ProfileVersion),
+    ("Case: {0}" -f $profile.Expected.CaseModel),
+    ("Motherboard: {0}" -f $profile.Expected.MotherboardModelContains),
+    ("CPU: {0}" -f $profile.Expected.CpuModelContains),
+    ("RAM: {0} GB {1}, configured speed >= {2} MHz" -f $profile.Expected.MemoryTotalGB,$profile.Expected.MemoryType,$profile.Expected.MemoryMinimumConfiguredSpeedMHz),
+    ("Storage: {0}, >= {1} GB" -f $profile.Expected.StorageModelContains,$profile.Expected.StorageMinimumSizeGB),
+    ("GPU: {0}" -f $profile.Expected.GpuModelContains),
+    ("PSU: {0}" -f $profile.Expected.PsuModel),
+    ("CPU cooler: {0}" -f $profile.Expected.CpuCoolerModel),
+    '',
+    'This comparison is optional and OFF by default. A mismatch is advisory and does not fail an otherwise healthy PC.'
+)
+$profileTipText=New-Object Windows.Controls.TextBlock
+$profileTipText.Text=($profileTooltipLines -join [Environment]::NewLine)
+$profileTipText.TextWrapping='Wrap'
+$profileTipText.MaxWidth=560
+$ChkProfileComparison.ToolTip=$profileTipText
+$profileDisplayTip=New-Object Windows.Controls.TextBlock
+$profileDisplayTip.Text=$profileTipText.Text
+$profileDisplayTip.TextWrapping='Wrap'
+$profileDisplayTip.MaxWidth=560
+$TxtProfileDisplay.ToolTip=$profileDisplayTip
+$TxtFooter.Text="Local baseline folder: $BaselineRoot  |  Profile comparison is optional and disabled by default. Connect the company USB only after QC is finished and SitecQC is closed."
 
 $script:LastReport=$null
 $script:Worker=$null
@@ -133,7 +154,7 @@ function Refresh-SitecHardware {
         $TxtHeaderStatus.Text='READY';$TxtStage.Text='Ready'
         $usbCount=@($h.Storage | Where-Object { [string]$_.BusType -match '^(USB|SD|MMC)$' }).Count
         if ($usbCount -gt 0) { $TxtMessage.Text="Disconnect removable storage before running QC. Detected removable storage devices: $usbCount" }
-        else { $TxtMessage.Text='Hardware discovery completed. Confirm Asset ID, scan PSU serial and CPU ATPO, then run selected QC. BOM profile differences are reported separately; in Advisory mode they do not fail otherwise healthy hardware.' }
+        else { $TxtMessage.Text='Hardware discovery completed. Confirm Asset ID, scan PSU serial and CPU ATPO, then run selected QC. Profile comparison is optional and OFF by default; identity/integrity and benchmark QC remain active.' }
     } catch {
         [Windows.MessageBox]::Show($_.Exception.Message,'Hardware detection failed') | Out-Null
         $TxtHeaderStatus.Text='ERROR';$TxtStage.Text='Error';$TxtMessage.Text=$_.Exception.Message
@@ -189,12 +210,14 @@ $BtnRun.Add_Click({
             '-BenchmarkComponents',(Q $benchmarkCsv),
             '-BaselineRoot',(Q $BaselineRoot),'-WorkingRoot',(Q $script:WorkRoot),'-ContinueBenchmarkOnBomFailure'
         )
+        if($ChkProfileComparison.IsChecked){$argList += '-EnableProfileComparison'}
         $script:StartedAt=Get-Date;$script:CurrentStatus=$null;$script:LastReport=$null
         $script:Worker=Start-Process powershell.exe -ArgumentList ($argList -join ' ') -PassThru -WindowStyle Hidden
         $BtnRun.IsEnabled=$false;$BtnDetect.IsEnabled=$false;$BtnOpenLast.IsEnabled=$false
         $BtnCancel.Visibility='Visible';$BtnCancel.IsEnabled=$true
-        @($ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$false }
-        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtProgressPercent.Text='1%';$TxtElapsed.Text='Elapsed: 00:00';$TxtRemaining.Text='Remaining: --:--';$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched for [{0}]. Scratch data: {1} | Final output: {2}\Output" -f $benchmarkCsv,$script:WorkRoot,$BaselineRoot)
+        @($ChkProfileComparison,$ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$false }
+        $profileMode=if($ChkProfileComparison.IsChecked){"ON ($($profile.ProfileId))"}else{'OFF'}
+        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtProgressPercent.Text='1%';$TxtElapsed.Text='Elapsed: 00:00';$TxtRemaining.Text='Remaining: --:--';$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched for [{0}]. Profile comparison: {1}. Scratch data: {2} | Final output: {3}\Output" -f $benchmarkCsv,$profileMode,$script:WorkRoot,$BaselineRoot)
     } catch { [Windows.MessageBox]::Show($_.Exception.Message,'Cannot start QC') | Out-Null }
 })
 
@@ -254,7 +277,7 @@ $timer.Add_Tick({
     if ($script:Worker.HasExited) {
         $BtnRun.IsEnabled=$true;$BtnDetect.IsEnabled=$true
         $BtnCancel.IsEnabled=$false;$BtnCancel.Visibility='Collapsed'
-        @($ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$true }
+        @($ChkProfileComparison,$ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$true }
         $published=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $asset
         if (Test-Path -LiteralPath $published) { $script:LastReport=$published }
         $BtnOpenLast.IsEnabled=[bool]$script:LastReport
@@ -265,7 +288,7 @@ $timer.Add_Tick({
         # QC classification. This prevents an exit-code propagation problem in
         # the launcher/wrapper from relabeling a completed QC FAIL as a runtime
         # ERROR in the GUI.
-        $publishedStatus='';$bomConformance='MATCH';$bomWarnings=@();$reason=''
+        $publishedStatus='';$profileComparisonEnabled=$false;$profileConformance='SKIPPED';$profileWarnings=@();$reason=''
         $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $asset
         $fullIsCurrent=$false
         if(Test-Path -LiteralPath $fullJson){
@@ -275,10 +298,13 @@ $timer.Add_Tick({
                 if($fullIsCurrent){
                     $full=Get-Content -LiteralPath $fullJson -Raw -Encoding UTF8 | ConvertFrom-Json
                     if($full.PSObject.Properties['OverallStatus']){$publishedStatus=[string]$full.OverallStatus}
-                    if($full.PSObject.Properties['BomConformanceStatus']){$bomConformance=[string]$full.BomConformanceStatus}
-                    elseif($full.BomValidation -and $full.BomValidation.PSObject.Properties['ConformanceStatus']){$bomConformance=[string]$full.BomValidation.ConformanceStatus}
-                    if($full.BomValidation -and $full.BomValidation.PSObject.Properties['Checks']){
-                        $bomWarnings=@($full.BomValidation.Checks | Where-Object Status -eq 'WARNING' | Select-Object -ExpandProperty Name)
+                    if($full.PSObject.Properties['ProfileComparisonEnabled']){$profileComparisonEnabled=[bool]$full.ProfileComparisonEnabled}
+                    if($full.PSObject.Properties['ProfileConformanceStatus']){$profileConformance=[string]$full.ProfileConformanceStatus}
+                    elseif($full.PSObject.Properties['BomConformanceStatus']){$profileConformance=[string]$full.BomConformanceStatus}
+                    if($full.PSObject.Properties['ProfileComparison'] -and $full.ProfileComparison -and $full.ProfileComparison.PSObject.Properties['Checks']){
+                        $profileWarnings=@($full.ProfileComparison.Checks | Where-Object Status -eq 'WARNING' | Select-Object -ExpandProperty Name)
+                    } elseif($full.BomValidation -and $full.BomValidation.PSObject.Properties['Checks']){
+                        $profileWarnings=@($full.BomValidation.Checks | Where-Object Status -eq 'WARNING' | Select-Object -ExpandProperty Name)
                     }
                     if($full.PSObject.Properties['ErrorSummary'] -and $full.ErrorSummary){$reason=[string]$full.ErrorSummary.PrimaryMessage}
                 }
@@ -293,14 +319,17 @@ $timer.Add_Tick({
 
         if ($effectiveStatus -in @('PASS','PASS_WITH_BOM_MISMATCH')) {
             $TxtHeaderStatus.Text='PASS';$TxtHeaderStatus.Foreground='#A8E6BE'
-            if($effectiveStatus -eq 'PASS_WITH_BOM_MISMATCH' -or $bomConformance -eq 'MISMATCH'){
-                $TxtStage.Text='Complete - BOM mismatch advisory'
-                $summary=($bomWarnings | Select-Object -First 4) -join '; '
-                if([string]::IsNullOrWhiteSpace($summary)){$summary='Configuration differs from the selected BOM profile.'}
-                $TxtMessage.Text=("Hardware QC PASS. BOM profile mismatch recorded as advisory: {0} This is not a hardware failure. QC Certificate PDF + Full JSON saved to {1}\Output." -f $summary,$BaselineRoot)
+            if($profileConformance -eq 'MISMATCH'){
+                $TxtStage.Text='Complete - profile mismatch advisory'
+                $summary=($profileWarnings | Select-Object -First 4) -join '; '
+                if([string]::IsNullOrWhiteSpace($summary)){$summary='Detected hardware differs from the selected production profile.'}
+                $TxtMessage.Text=("Hardware QC PASS. Optional profile comparison: MISMATCH (advisory): {0} This does not fail the PC. QC Certificate PDF + Full JSON saved to {1}\Output." -f $summary,$BaselineRoot)
+            } elseif(-not $profileComparisonEnabled -or $profileConformance -eq 'SKIPPED'){
+                $TxtStage.Text='Complete - profile comparison skipped'
+                $TxtMessage.Text="QC complete: PASS. Hardware identity/integrity and selected benchmarks passed. Optional profile comparison was not selected. QC Certificate PDF + Full JSON saved to $BaselineRoot\Output."
             } else {
-                $TxtStage.Text='Complete'
-                $TxtMessage.Text="QC complete: PASS. QC Certificate PDF + Full JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB."
+                $TxtStage.Text='Complete - profile match'
+                $TxtMessage.Text="QC complete: PASS. Identity/integrity PASS, profile comparison MATCH, and selected benchmark QC PASS. QC Certificate PDF + Full JSON saved to $BaselineRoot\Output."
             }
         }
         elseif ($effectiveStatus -in @('FAIL','CANCELLED')) {

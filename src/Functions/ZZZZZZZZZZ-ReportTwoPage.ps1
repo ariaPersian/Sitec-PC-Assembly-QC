@@ -81,7 +81,12 @@ function New-SitecCustomerReport {
     $statusClass=Get-SitecStatusClass $Run.OverallStatus
     $displayOverall=if([string]$Run.OverallStatus -eq 'PASS_WITH_BOM_MISMATCH'){'PASS'}else{[string]$Run.OverallStatus}
     $hardwareQcStatus=if($Run.PSObject.Properties['HardwareQcStatus']){[string]$Run.HardwareQcStatus}elseif([string]$Run.OverallStatus -in @('PASS','PASS_WITH_BOM_MISMATCH')){'PASS'}else{[string]$Run.OverallStatus}
-    $bomConformanceStatus=if($Run.PSObject.Properties['BomConformanceStatus']){[string]$Run.BomConformanceStatus}elseif($Run.BomValidation -and $Run.BomValidation.PSObject.Properties['ConformanceStatus']){[string]$Run.BomValidation.ConformanceStatus}elseif([string]$Run.BomValidation.Status -eq 'MISMATCH'){'MISMATCH'}else{'MATCH'}
+    $identityStatus=if($Run.PSObject.Properties['IdentityStatus']){[string]$Run.IdentityStatus}elseif($Run.PSObject.Properties['BomBlockingStatus']){[string]$Run.BomBlockingStatus}else{$hardwareQcStatus}
+    $benchmarkQcStatus=if($Run.PSObject.Properties['BenchmarkQcStatus']){[string]$Run.BenchmarkQcStatus}elseif($Run.BenchmarkValidation -and $Run.BenchmarkValidation.PSObject.Properties['Status']){[string]$Run.BenchmarkValidation.Status}else{$hardwareQcStatus}
+    $profileComparisonEnabled=if($Run.PSObject.Properties['ProfileComparisonEnabled']){[bool]$Run.ProfileComparisonEnabled}else{$true}
+    $profileConformanceStatus=if($Run.PSObject.Properties['ProfileConformanceStatus']){[string]$Run.ProfileConformanceStatus}elseif($Run.PSObject.Properties['BomConformanceStatus']){[string]$Run.BomConformanceStatus}elseif($Run.BomValidation -and $Run.BomValidation.PSObject.Properties['ConformanceStatus']){[string]$Run.BomValidation.ConformanceStatus}elseif([string]$Run.BomValidation.Status -eq 'MISMATCH'){'MISMATCH'}else{'MATCH'}
+    if(-not $profileComparisonEnabled){$profileConformanceStatus='SKIPPED'}
+    $bomConformanceStatus=$profileConformanceStatus
 
     $completed=''
     try { $completed=([datetimeoffset]$Run.CompletedAt).ToString('yyyy-MM-dd HH:mm:ss zzz') } catch { $completed=[string]$Run.CompletedAt }
@@ -224,12 +229,12 @@ function New-SitecCustomerReport {
     $allChecks=@($bomChecks)+@($benchmarkChecks)
     $blockingChecks=@($allChecks | Where-Object { [string]$_.Status -in @('FAIL','ERROR') })
     $warningChecks=@($allChecks | Where-Object { [string]$_.Status -eq 'WARNING' })
-    $bomWarnings=@($bomChecks | Where-Object { [string]$_.Status -eq 'WARNING' })
+    $bomWarnings=if($Run.PSObject.Properties['ProfileComparison'] -and $Run.ProfileComparison -and $Run.ProfileComparison.PSObject.Properties['Checks']){@($Run.ProfileComparison.Checks | Where-Object { [string]$_.Status -eq 'WARNING' })}else{@($bomChecks | Where-Object { [string]$_.Status -eq 'WARNING' })}
     $healthPass=([string]$Run.OverallStatus -in @('PASS','PASS_WITH_BOM_MISMATCH'))
     $checks=@()
     if ($healthPass) { $checks=@($benchmarkChecks)+@($bomWarnings) }
     else { $checks=@($blockingChecks)+@($warningChecks) }
-    $checkTitle=if([string]$Run.OverallStatus -eq 'PASS_WITH_BOM_MISMATCH'){'QC Validation + BOM Advisory'}elseif($healthPass){'QC Validation'}else{'Failure Details'}
+    $checkTitle=if([string]$Run.OverallStatus -eq 'PASS_WITH_BOM_MISMATCH'){'QC Validation + Profile Advisory'}elseif($healthPass){'QC Validation'}else{'Failure Details'}
     $checkTable=''
     if ($checks.Count -gt 0) {
         $checkTable=ConvertTo-SitecCompactTable -Rows $checks -Columns @(
@@ -239,7 +244,7 @@ function New-SitecCustomerReport {
     }
     $failureDescriptions=@($blockingChecks | ForEach-Object { '{0}: expected [{1}], actual [{2}]' -f $_.Name,$_.Expected,$_.Actual })
     $bomAdvisories=@($bomWarnings | ForEach-Object { '{0}: expected [{1}], actual [{2}]' -f $_.Name,$_.Expected,$_.Actual })
-    $bomAdvisoryText=if($bomAdvisories.Count){$bomAdvisories -join ' | '}else{'None'}
+    $bomAdvisoryText=if(-not $profileComparisonEnabled -or $profileConformanceStatus -eq 'SKIPPED'){'Not selected'}elseif($bomAdvisories.Count){$bomAdvisories -join ' | '}else{'None'}
     $errorCandidates=@($b.WinSAT,$b.DiskSpd)
     if ($stress) {
         $errorCandidates += $stress
@@ -272,14 +277,14 @@ function New-SitecCustomerReport {
 </style></head><body>
 <div class="sheet">
 <div class="head"><div><div class="brand">$(ConvertTo-SitecHtml $Context.Settings.Reporting.CompanyName)</div><div class="subtitle">PC Assembly &amp; Hardware Identity Certificate - Page 1 of 2</div></div><div class="overall $statusClass">$(ConvertTo-SitecHtml $displayOverall)</div></div>
-<div class="meta"><div><span class="k">Asset ID</span><span class="v">$(ConvertTo-SitecHtml $Run.AssetId)</span></div><div><span class="k">Profile</span><span class="v">$(ConvertTo-SitecHtml ($Run.Profile.ProfileId+' v'+$Run.Profile.ProfileVersion))</span></div><div><span class="k">Operator</span><span class="v">$(ConvertTo-SitecHtml $Run.Operator)</span></div><div><span class="k">Completed</span><span class="v">$(ConvertTo-SitecHtml $completed)</span></div></div>
+<div class="meta"><div><span class="k">Asset ID</span><span class="v">$(ConvertTo-SitecHtml $Run.AssetId)</span></div><div><span class="k">QC recipe</span><span class="v">$(ConvertTo-SitecHtml ($Run.Profile.ProfileId+' v'+$Run.Profile.ProfileVersion))</span></div><div><span class="k">Operator</span><span class="v">$(ConvertTo-SitecHtml $Run.Operator)</span></div><div><span class="k">Completed</span><span class="v">$(ConvertTo-SitecHtml $completed)</span></div></div>
 <div class="sec"><h2>Assembly Identity</h2>$assembly</div>
 <div class="sec"><h2>Detected System Hardware</h2>$system</div>
 <div class="sec"><h2>Memory Modules</h2>$ram</div>
 <div class="sec"><h2>Storage</h2>$storage</div>
 <div class="sec"><h2>Graphics</h2>$graphics</div>
 <div class="sec"><h2>Network Identity</h2>$network</div>
-<div class="footer">Run ID: $(ConvertTo-SitecHtml $Run.RunId) | Hardware QC: $(ConvertTo-SitecHtml $hardwareQcStatus) | BOM conformance: $(ConvertTo-SitecHtml $bomConformanceStatus)$(if($bomConformanceStatus -eq 'MISMATCH'){' (advisory)'}else{''})</div>
+<div class="footer">Run ID: $(ConvertTo-SitecHtml $Run.RunId) | Identity: $(ConvertTo-SitecHtml $identityStatus) | Profile comparison: $(ConvertTo-SitecHtml $profileConformanceStatus)$(if($profileConformanceStatus -eq 'MISMATCH'){' (advisory)'}else{''}) | Benchmark QC: $(ConvertTo-SitecHtml $benchmarkQcStatus)</div>
 </div>
 <div class="sheet">
 <div class="head"><div><div class="brand">$(ConvertTo-SitecHtml $Context.Settings.Reporting.CompanyName)</div><div class="subtitle">Benchmark, Stability &amp; Evidence - Page 2 of 2</div></div><div class="overall $statusClass">$(ConvertTo-SitecHtml $displayOverall)</div></div>
@@ -287,7 +292,7 @@ function New-SitecCustomerReport {
 <div class="sec"><h2>Full System Burn-In</h2>$burnin</div>
 <div class="sec"><h2>$checkTitle</h2>$checkTable</div>
 $exactFailureSection
-<div class="sec"><h2>Result</h2><div class="summaryline"><b>Hardware QC:</b> $(ConvertTo-SitecHtml $hardwareQcStatus)</div><div class="summaryline"><b>BOM conformance:</b> $(ConvertTo-SitecHtml $bomConformanceStatus)$(if($bomConformanceStatus -eq 'MISMATCH'){' (advisory)'}else{''})</div><div class="summaryline"><b>BOM advisory differences:</b> $(ConvertTo-SitecHtml $bomAdvisoryText)</div><div class="summaryline"><b>Failing gates:</b> $(ConvertTo-SitecHtml $failureText)</div><div class="summaryline"><b>Evidence protection:</b> $(ConvertTo-SitecHtml $securityText)</div></div>
+<div class="sec"><h2>Result</h2><div class="summaryline"><b>Hardware QC:</b> $(ConvertTo-SitecHtml $hardwareQcStatus)</div><div class="summaryline"><b>Hardware identity / integrity:</b> $(ConvertTo-SitecHtml $identityStatus)</div><div class="summaryline"><b>Profile comparison:</b> $(ConvertTo-SitecHtml $profileConformanceStatus)$(if($profileConformanceStatus -eq 'MISMATCH'){' (advisory)'}elseif($profileConformanceStatus -eq 'SKIPPED'){' (not selected)'}else{''})</div><div class="summaryline"><b>Profile advisory differences:</b> $(ConvertTo-SitecHtml $bomAdvisoryText)</div><div class="summaryline"><b>Benchmark QC:</b> $(ConvertTo-SitecHtml $benchmarkQcStatus)</div><div class="summaryline"><b>Failing gates:</b> $(ConvertTo-SitecHtml $failureText)</div><div class="summaryline"><b>Evidence protection:</b> $(ConvertTo-SitecHtml $securityText)</div></div>
 <div class="hashbox"><div class="hashlabel">Hardware Identity SHA-256</div><div class="hash">$(ConvertTo-SitecHtml $hwid)</div></div>
 <div class="hashbox"><div class="hashlabel">Manifest SHA-256</div><div class="hash">$(ConvertTo-SitecHtml $manifestHash)</div></div>
 <div class="footer">Asset: $(ConvertTo-SitecHtml $Run.AssetId) | Run ID: $(ConvertTo-SitecHtml $Run.RunId) | Generated by SITEC PC Assembly &amp; QC</div>

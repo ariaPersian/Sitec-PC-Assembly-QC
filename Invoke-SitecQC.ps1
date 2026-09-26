@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$')][string]$AssetId,
-    [string]$ProfileId='B760-14700K-990PRO',
+    [string]$ProfileId='B760-13700K-64GB-990PRO',
     [string]$Operator=$env:USERNAME,
     [string]$CaseModel='',
     [string]$PsuModel='',
@@ -13,6 +13,7 @@ param(
     [string]$Seal2='',
     [string]$DataRoot='',
     [string]$BenchmarkComponents='CPU,Memory,Disk,Graphics',
+    [switch]$EnableProfileComparison,
     [switch]$ContinueBenchmarkOnBomFailure
 )
 $ErrorActionPreference='Stop'
@@ -69,7 +70,7 @@ function Set-WorkerStatus([string]$Stage,[int]$Percent,[string]$Message,[string]
     Write-SitecDiagnosticEvent -RunPath $runPath -Stage $Stage -Step 'Pipeline' -Status $State -Level $(if($State -eq 'ERROR'){'ERROR'}else{'INFO'}) -Message $Message
 }
 
-$hardware=$null;$physical=$null;$bom=$null;$benchmark=$null;$benchValidation=$null;$passmark=@();$security=$null;$report=$null;$run=$null
+$hardware=$null;$physical=$null;$identity=$null;$profileComparison=$null;$bom=$null;$benchmark=$null;$benchValidation=$null;$passmark=@();$security=$null;$report=$null;$run=$null
 $runStart=$pipelineStarted
 
 try {
@@ -91,28 +92,59 @@ try {
     }
     Write-SitecStepResult -RunPath $runPath -Step '11-physical-identity' -Value $physical | Out-Null
 
-    Set-WorkerStatus 'Validation' 18 'Validating expected BOM and serial identity'
-    $bom=Test-SitecExpectedBom -Hardware $hardware -Physical $physical -Profile $profile
+    $validationMessage=if($EnableProfileComparison){'Validating hardware identity and comparing detected hardware with the selected profile'}else{'Validating hardware identity; profile comparison is disabled for this run'}
+    Set-WorkerStatus 'Validation' 18 $validationMessage
+
+    $identity=Test-SitecHardwareIdentity -Hardware $hardware -Physical $physical -Profile $profile
     $duplicates=@(Find-SitecDuplicateSerials -DataRoot $data -AssetId $AssetId -Hardware $hardware -Physical $physical -Profile $profile)
     if ($duplicates.Count -gt 0) {
         $dupChecks=@($duplicates | ForEach-Object {
             New-SitecCheck -Name ("Duplicate {0} serial" -f $_.Type) -Expected 'Unique in fleet' -Actual ("{0} already registered to {1}" -f $_.Serial,$_.ExistingAssetId) -Passed $false
         })
-        $bom.Checks=@($bom.Checks)+$dupChecks
-        $bom.Status='FAIL'
-        if($bom.PSObject.Properties['BlockingStatus']){$bom.BlockingStatus='FAIL'}
-        if($bom.PSObject.Properties['BlockingFailureCount']){$bom.BlockingFailureCount=[int]$bom.BlockingFailureCount+$dupChecks.Count}
+        $identity.Checks=@($identity.Checks)+$dupChecks
+        $identity.Status='FAIL'
+        $identity.FailureCount=[int]$identity.FailureCount+$dupChecks.Count
     }
-    Write-SitecStepResult -RunPath $runPath -Step '12-bom-validation' -Value $bom | Out-Null
-    $bomLevel=if($bom.Status -eq 'PASS'){'INFO'}elseif($bom.Status -eq 'MISMATCH'){'WARNING'}else{'ERROR'}
-    $bomMessage=if($bom.Status -eq 'MISMATCH'){'BOM profile mismatch recorded (advisory); hardware health testing will continue normally.'}else{("BOM validation {0}; checks={1}; duplicate serials={2}." -f $bom.Status,@($bom.Checks).Count,$duplicates.Count)}
-    Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'BOM' -Status $bom.Status -Level $bomLevel -Message $bomMessage -Data $bom
+
+    if($EnableProfileComparison){
+        $profileComparison=Test-SitecProfileConformance -Hardware $hardware -Physical $physical -Profile $profile
+    } else {
+        $profileComparison=[pscustomobject]@{
+            Enabled=$false
+            ProfileId=[string]$profile.ProfileId
+            ProfileVersion=[string]$profile.ProfileVersion
+            Status='SKIPPED'
+            MismatchCount=0
+            Checks=@()
+        }
+    }
+
+    $profileStatus=[string]$profileComparison.Status
+    $bomStatus=if([string]$identity.Status -eq 'FAIL'){'FAIL'}elseif($profileStatus -eq 'MISMATCH'){'MISMATCH'}elseif($profileStatus -eq 'SKIPPED'){'SKIPPED'}else{'PASS'}
+    $bom=[pscustomobject]@{
+        Status=$bomStatus
+        Mode='OptionalProfileComparison'
+        ProfileComparisonEnabled=[bool]$EnableProfileComparison
+        BlockingStatus=[string]$identity.Status
+        ConformanceStatus=$profileStatus
+        BlockingFailureCount=[int]$identity.FailureCount
+        MismatchCount=[int]$profileComparison.MismatchCount
+        Checks=@($identity.Checks)+@($profileComparison.Checks)
+    }
+
+    Write-SitecStepResult -RunPath $runPath -Step '12-identity-validation' -Value $identity | Out-Null
+    Write-SitecStepResult -RunPath $runPath -Step '13-profile-comparison' -Value $profileComparison | Out-Null
+    Write-SitecStepResult -RunPath $runPath -Step '14-validation-summary' -Value $bom | Out-Null
+    Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'Identity' -Status $identity.Status -Level $(if($identity.Status -eq 'PASS'){'INFO'}else{'ERROR'}) -Message ("Hardware identity/integrity validation {0}; blocking failures={1}; duplicate serials={2}." -f $identity.Status,$identity.FailureCount,$duplicates.Count) -Data $identity
+    $profileLevel=if($profileStatus -eq 'MISMATCH'){'WARNING'}else{'INFO'}
+    $profileMessage=if($profileStatus -eq 'SKIPPED'){'Profile comparison skipped by operator selection.'}elseif($profileStatus -eq 'MISMATCH'){'Profile comparison found advisory hardware differences; this does not fail hardware QC.'}else{'Profile comparison MATCH.'}
+    Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'ProfileComparison' -Status $profileStatus -Level $profileLevel -Message $profileMessage -Data $profileComparison
 
     $runStart=Get-Date
     $passmark=@(Import-SitecPassMarkEvidence -Context $context -RunPath $runPath -Since $runStart -AssetId $AssetId)
-    # Benchmark execution is independent from BOM conformance. Advisory profile
-    # mismatches are documented but do not classify a healthy system as failed.
-    $benchmarkMessage=if($bom.Status -eq 'PASS'){'Running selected performance qualification and burn-in'}elseif($bom.Status -eq 'MISMATCH'){'BOM profile mismatch recorded; running selected hardware QC normally'}else{'Blocking BOM/identity validation failed; running selected benchmarks independently'}
+    # Benchmarks are independent from optional profile comparison. A profile
+    # mismatch is advisory only; identity/integrity failures remain blocking.
+    $benchmarkMessage=if($identity.Status -eq 'FAIL'){'Identity/integrity validation failed; running selected benchmarks independently'}elseif($profileStatus -eq 'MISMATCH'){'Profile mismatch recorded as advisory; running selected hardware QC normally'}elseif($profileStatus -eq 'SKIPPED'){'Profile comparison skipped; running selected performance qualification and burn-in'}else{'Profile MATCH; running selected performance qualification and burn-in'}
     Set-WorkerStatus 'Benchmark' 28 $benchmarkMessage
     $benchmark=Invoke-SitecBenchmarkSuite -Context $context -RunPath $runPath
     if (-not $benchmark.PSObject.Properties['Selection']) { $benchmark | Add-Member -NotePropertyName Selection -NotePropertyValue @($selectedBenchmarkComponents) }
@@ -131,10 +163,14 @@ try {
     Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'Benchmark' -Status $benchValidation.Status -Level $(if($benchValidation.Status -eq 'PASS'){'INFO'}elseif($benchValidation.Status -eq 'CANCELLED'){'WARNING'}else{'ERROR'}) -Message ("Benchmark validation completed: {0}." -f $benchValidation.Status) -Data $benchValidation
 
     $failureSummary=Write-SitecFailureSummary -RunPath $runPath -BomValidation $bom -BenchmarkValidation $benchValidation
-    $bomBlockingStatus=if($bom.PSObject.Properties['BlockingStatus']){[string]$bom.BlockingStatus}elseif($bom.Status -in @('PASS','MISMATCH')){'PASS'}else{'FAIL'}
-    $bomConformanceStatus=if($bom.PSObject.Properties['ConformanceStatus']){[string]$bom.ConformanceStatus}elseif($bom.Status -eq 'MISMATCH'){'MISMATCH'}else{'MATCH'}
-    $hardwareQcStatus=if($benchValidation.Status -in @('PASS','SKIPPED')){'PASS'}elseif($benchValidation.Status -eq 'CANCELLED'){'CANCELLED'}else{'FAIL'}
-    $overall=if($cancelled){'CANCELLED'}elseif($hardwareQcStatus -eq 'PASS' -and $bomBlockingStatus -eq 'PASS' -and $bomConformanceStatus -eq 'MISMATCH'){'PASS_WITH_BOM_MISMATCH'}elseif($hardwareQcStatus -eq 'PASS' -and $bomBlockingStatus -eq 'PASS'){'PASS'}else{'FAIL'}
+    $identityStatus=[string]$identity.Status
+    $profileConformanceStatus=[string]$profileComparison.Status
+    $benchmarkQcStatus=if($benchValidation.Status -in @('PASS','SKIPPED')){'PASS'}elseif($benchValidation.Status -eq 'CANCELLED'){'CANCELLED'}else{'FAIL'}
+    $hardwareQcStatus=if($cancelled){'CANCELLED'}elseif($identityStatus -eq 'PASS' -and $benchmarkQcStatus -eq 'PASS'){'PASS'}else{'FAIL'}
+    # Compatibility aliases retained for existing Full JSON consumers.
+    $bomBlockingStatus=$identityStatus
+    $bomConformanceStatus=$profileConformanceStatus
+    $overall=if($cancelled){'CANCELLED'}elseif($hardwareQcStatus -eq 'PASS' -and $profileConformanceStatus -eq 'MISMATCH'){'PASS_WITH_BOM_MISMATCH'}elseif($hardwareQcStatus -eq 'PASS'){'PASS'}else{'FAIL'}
     $run=[pscustomobject]@{
         SchemaVersion='1.2'
         AssetId=$AssetId
@@ -144,11 +180,17 @@ try {
         CompletedAt=(Get-Date).ToString('o')
         OverallStatus=$overall
         HardwareQcStatus=$hardwareQcStatus
+        IdentityStatus=$identityStatus
+        BenchmarkQcStatus=$benchmarkQcStatus
+        ProfileComparisonEnabled=[bool]$EnableProfileComparison
+        ProfileConformanceStatus=$profileConformanceStatus
         BomConformanceStatus=$bomConformanceStatus
         BomBlockingStatus=$bomBlockingStatus
         Profile=$profile
         Physical=$physical
         Hardware=$hardware
+        IdentityValidation=$identity
+        ProfileComparison=$profileComparison
         BomValidation=$bom
         BenchmarkSelection=@($selectedBenchmarkComponents)
         Benchmark=$benchmark
@@ -209,10 +251,11 @@ try {
     $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runPath 'result.json') -Encoding UTF8
 
     if ($overall -eq 'PASS') {
-        Set-WorkerStatus 'Complete' 100 ("QC complete: PASS | BOM MATCH | HWID SHA-256: {0}" -f $security.HardwareIdentitySha256) 'COMPLETE' 0
+        $profileResult=if($profileConformanceStatus -eq 'SKIPPED'){'SKIPPED'}else{'MATCH'}
+        Set-WorkerStatus 'Complete' 100 ("QC complete: PASS | Identity PASS | Profile comparison {0} | Benchmark PASS | HWID SHA-256: {1}" -f $profileResult,$security.HardwareIdentitySha256) 'COMPLETE' 0
     } elseif($overall -eq 'PASS_WITH_BOM_MISMATCH') {
-        $mismatchNames=@($bom.Checks | Where-Object Status -eq 'WARNING' | Select-Object -ExpandProperty Name)
-        Set-WorkerStatus 'Complete' 100 ("QC complete: PASS | BOM MISMATCH (advisory): {0} | HWID SHA-256: {1}" -f (($mismatchNames | Select-Object -First 4) -join '; '),$security.HardwareIdentitySha256) 'COMPLETE' 0
+        $mismatchNames=@($profileComparison.Checks | Where-Object Status -eq 'WARNING' | Select-Object -ExpandProperty Name)
+        Set-WorkerStatus 'Complete' 100 ("QC complete: PASS | Identity PASS | Profile comparison MISMATCH (advisory): {0} | Benchmark PASS | HWID SHA-256: {1}" -f (($mismatchNames | Select-Object -First 4) -join '; '),$security.HardwareIdentitySha256) 'COMPLETE' 0
     } elseif($overall -eq 'CANCELLED') {
         Set-WorkerStatus 'Cancelled' 100 ("Benchmark cancelled by operator | Partial evidence finalized | Full JSON preserved") 'CANCELLED' 0
     } else {
@@ -244,12 +287,16 @@ try {
     # CASE-xxx-Full.json even when the QC pipeline itself crashes.
     try {
         if($null -eq $physical){$physical=[pscustomobject]@{CaseModel=$CaseModel;PsuModel=$PsuModel;PsuSerial=$PsuSerial.Trim();CpuAtpo=$CpuAtpo.Trim();Cooler=$Cooler.Trim();Seal1=$Seal1.Trim();Seal2=$Seal2.Trim()}}
-        if($null -eq $bom){$bom=[pscustomobject]@{Status='ERROR';Checks=@()}}
+        if($null -eq $identity){$identity=[pscustomobject]@{Status='ERROR';FailureCount=1;Checks=@([pscustomobject]@{Name='Identity/runtime execution';Expected='Completed';Actual=$msg;Passed=$false;Severity='Error';Status='ERROR'})}}
+        if($null -eq $profileComparison){$profileComparison=[pscustomobject]@{Enabled=[bool]$EnableProfileComparison;ProfileId=[string]$profile.ProfileId;ProfileVersion=[string]$profile.ProfileVersion;Status=$(if($EnableProfileComparison){'ERROR'}else{'SKIPPED'});MismatchCount=0;Checks=@()}}
+        if($null -eq $bom){$bom=[pscustomobject]@{Status='ERROR';Mode='OptionalProfileComparison';ProfileComparisonEnabled=[bool]$EnableProfileComparison;BlockingStatus='ERROR';ConformanceStatus=[string]$profileComparison.Status;BlockingFailureCount=1;MismatchCount=0;Checks=@($identity.Checks)}}
         if($null -eq $benchmark){$benchmark=[pscustomobject]@{Selection=@($selectedBenchmarkComponents);StartedAt=$runStart.ToString('o');FinishedAt=(Get-Date).ToString('o');Cancelled=$false;RuntimeError=$true;Error=$msg}}
         if($null -eq $benchValidation){$benchValidation=[pscustomobject]@{Status='ERROR';Checks=@([pscustomobject]@{Name='Benchmark/runtime execution';Expected='Completed';Actual=$msg;Passed=$false;Severity='Error';Status='ERROR'})}}
         $partialRun=[pscustomobject]@{
             SchemaVersion='1.2';AssetId=$AssetId;RunId=$runId;Operator=$Operator;StartedAt=$runStart.ToString('o');CompletedAt=(Get-Date).ToString('o');OverallStatus='ERROR'
-            Profile=$profile;Physical=$physical;Hardware=$hardware;BomValidation=$bom;BenchmarkSelection=@($selectedBenchmarkComponents);Benchmark=$benchmark;BenchmarkValidation=$benchValidation
+            HardwareQcStatus='ERROR';IdentityStatus=[string]$identity.Status;BenchmarkQcStatus='ERROR';ProfileComparisonEnabled=[bool]$EnableProfileComparison;ProfileConformanceStatus=[string]$profileComparison.Status
+            BomConformanceStatus=[string]$profileComparison.Status;BomBlockingStatus=[string]$identity.Status
+            Profile=$profile;Physical=$physical;Hardware=$hardware;IdentityValidation=$identity;ProfileComparison=$profileComparison;BomValidation=$bom;BenchmarkSelection=@($selectedBenchmarkComponents);Benchmark=$benchmark;BenchmarkValidation=$benchValidation
             DuplicateSerials=@();PassMarkEvidence=@($passmark)
             Diagnostics=[pscustomobject]@{Events=(Join-Path $runPath 'diagnostics\events.jsonl');FatalError=(Join-Path $runPath 'fatal-error.json');BurnInChildError=(Join-Path $runPath 'diagnostics\burnin-child-error.json')}
             Execution=[pscustomobject]@{Cancelled=$false;CancellationReason='';CancellationRequestPath=$cancelPath;RuntimeError=$true}
