@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.13.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution**.
+Current production workflow: **v3.13.1 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / explicit PASS-FAIL-ERROR semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -102,6 +102,8 @@ Before each run, the operator can independently select which hardware categories
 All four are selected by default, preserving the previous full-QC behavior. At least one benchmark category must remain selected. Inventory, expected-BOM validation, WHEA monitoring, hardware identity, evidence hashing/signing and report generation always run regardless of benchmark selection. Unselected benchmark categories are recorded as `SKIPPED` and are excluded from pass/fail threshold evaluation.
 
 Expected-BOM validation and benchmark execution are independent gates. A BOM mismatch **does not suppress the operator-selected benchmarks**; the selected CPU/RAM/Storage/Graphics tests still run and are reported. The final QC result remains `FAIL` whenever BOM validation fails, even if all selected benchmarks pass.
+
+Process outcomes are deliberately distinct: exit code `0` means completed QC `PASS`, exit code `2` means completed QC `FAIL` (for example a BOM mismatch or failed benchmark gate), and exit code `1` means a real application/runtime error. A normal QC `FAIL` publishes the PDF/Baseline/Full JSON but does **not** create `LastFailure` diagnostics; `LastFailure` is reserved for runtime faults.
 
 Production QC combines:
 
