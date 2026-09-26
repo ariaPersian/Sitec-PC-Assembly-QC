@@ -19,10 +19,12 @@ Assert-HasControl 'TxtPsuSerial'
 Assert-HasControl 'TxtCpuAtpo'
 Assert-HasControl 'TxtSeal1'
 Assert-HasControl 'TxtProfileDisplay'
+Assert-HasControl 'ChkProfileComparison'
 Assert-HasControl 'ChkBenchCpu'
 Assert-HasControl 'ChkBenchMemory'
 Assert-HasControl 'ChkBenchDisk'
 Assert-HasControl 'ChkBenchGraphics'
+if ($w.FindName('ChkProfileComparison').IsChecked) { throw 'Profile comparison must be OFF by default.' }
 foreach ($name in @('ChkBenchCpu','ChkBenchMemory','ChkBenchDisk','ChkBenchGraphics')) {
     if (-not $w.FindName($name).IsChecked) { throw "Benchmark component is not enabled by default: $name" }
 }
@@ -38,7 +40,8 @@ if ($start -match '\$TxtSeal2\b') { throw 'Start-SitecQC still references the re
 if ($start -match '\$TxtOperator\b') { throw 'Start-SitecQC still references the removed operator UI field.' }
 if ($start -match '\$TxtProfile\b') { throw 'Start-SitecQC still references the removed profile input field.' }
 $profileSource="'-ProfileId',(Q ([string]`$profile.ProfileId))"
-if ($start -notmatch [regex]::Escape($profileSource)) { throw 'Profile ID is not sourced internally from the configured BOM profile.' }
+if ($start -notmatch [regex]::Escape($profileSource)) { throw 'QC recipe/profile ID is not sourced internally from the configured default profile.' }
+if ($start -notmatch [regex]::Escape("if(`$ChkProfileComparison.IsChecked){`$argList += '-EnableProfileComparison'}")) { throw 'Optional profile-comparison selection is not forwarded to the QC worker.' }
 if ($start -notmatch [regex]::Escape("'-BenchmarkComponents',(Q `$benchmarkCsv)")) { throw 'Selected benchmark components are not forwarded to the QC worker.' }
 if ($start -notmatch [regex]::Escape("'-ContinueBenchmarkOnBomFailure'")) { throw 'GUI does not preserve benchmark execution after a BOM mismatch.' }
 if ($start -notmatch [regex]::Escape("Select at least one hardware component to benchmark.")) { throw 'GUI does not reject an empty benchmark selection.' }
