@@ -35,8 +35,20 @@
           </StackPanel>
         </GroupBox>
 
+        <GroupBox Header="Benchmark selection" Margin="0,0,0,10" Padding="10">
+          <StackPanel>
+            <TextBlock Text="Select the hardware components to benchmark. Inventory, BOM validation, WHEA monitoring and evidence generation always remain enabled." Foreground="#667" TextWrapping="Wrap" Margin="0,0,0,8"/>
+            <UniformGrid Columns="2">
+              <CheckBox x:Name="ChkBenchCpu" Content="CPU" IsChecked="True" Margin="4" ToolTip="WinSAT CPU qualification and CPU burn-in"/>
+              <CheckBox x:Name="ChkBenchMemory" Content="RAM / Memory" IsChecked="True" Margin="4" ToolTip="WinSAT memory bandwidth and deterministic RAM verification"/>
+              <CheckBox x:Name="ChkBenchDisk" Content="Storage / NVMe" IsChecked="True" Margin="4" ToolTip="DiskSpd qualification and sustained storage burn-in"/>
+              <CheckBox x:Name="ChkBenchGraphics" Content="Graphics / GPU" IsChecked="True" Margin="4" ToolTip="Graphics workload during burn-in"/>
+            </UniformGrid>
+          </StackPanel>
+        </GroupBox>
+
         <Button x:Name="BtnDetect" Content="Refresh Hardware" Height="38" Margin="0,0,0,8"/>
-        <Button x:Name="BtnRun" Content="RUN FULL QC + FINALIZE" Height="52" FontWeight="Bold" FontSize="15" Background="#137C3D" Foreground="White"/>
+        <Button x:Name="BtnRun" Content="RUN SELECTED QC + FINALIZE" Height="52" FontWeight="Bold" FontSize="15" Background="#137C3D" Foreground="White"/>
       </StackPanel></ScrollViewer>
 
       <Grid Grid.Column="2">
