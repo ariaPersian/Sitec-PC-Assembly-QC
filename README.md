@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.13.2 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / capacity-aware RAM burn-in / explicit PASS-FAIL-ERROR semantics**.
+Current production workflow: **v3.13.3 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe RAM coverage / explicit PASS-FAIL-ERROR semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -111,12 +111,14 @@ Production QC combines:
 - selected WinSAT CPU and/or memory qualification;
 - selected CPU stress across logical processors;
 - selected deterministic RAM write/verify testing;
-- capacity-aware RAM pressure: the allocator targets 72% whole-system memory usage while reserving at least 4 GB; `MemoryMaximumMB=0` means no fixed 8 GB cap, so 16/32/64/128 GB systems scale automatically;
+- **MaximumSafe RAM coverage:** the allocator consumes almost all currently free physical RAM while keeping a dynamic safety reserve of 5% of installed memory, clamped to 2-4 GB; `MemoryMaximumMB=0` means no fixed capacity cap. On a typical 64 GB system with about 12 GB already in use, approximately 49-50 GB is requested for deterministic write/verify and expected whole-system usage is about 95%;
 - selected Microsoft DiskSpd sequential and random storage qualification;
 - concurrent burn-in using only the selected CPU/RAM/NVMe/graphics workloads;
 - Windows WHEA hardware-error monitoring;
 - LibreHardwareMonitor sensor sampling when supported;
 - optional PassMark/BurnInTest supporting evidence.
+
+RAM validation is plan-aware: at least 95% of the calculated safe allocation must actually be reserved, and observed peak RAM usage may fall no more than 5 percentage points below the calculated MaximumSafe target. The legacy fixed `>=70%` peak check remains only as a compatibility fallback for older result records.
 
 Runtime benchmark XML/log/HTML files are temporary and are removed after completion. Only a real application/runtime fault may keep one `LastFailure.zip` under `Output` for troubleshooting; a completed QC `FAIL` does not.
 
