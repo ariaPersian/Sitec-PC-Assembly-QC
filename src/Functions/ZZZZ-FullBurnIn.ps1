@@ -102,6 +102,7 @@ public static class SitecQcBurnInV2 {
             if (workers < 1) workers = 1;
             if (workers > 8) workers = 8;
 
+            var sw = Stopwatch.StartNew();
             const int chunkMB = 32;
             var chunks = new List<ulong[]>();
             int remaining = targetMB;
@@ -121,7 +122,6 @@ public static class SitecQcBurnInV2 {
             if (allocatedMB < 128)
                 throw new OutOfMemoryException("Unable to reserve enough physical memory for the burn-in workload.");
 
-            var sw = Stopwatch.StartNew();
             long errors = 0;
             long verified = 0;
             int passes = 0;
