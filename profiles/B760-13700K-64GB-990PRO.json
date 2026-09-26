@@ -1,0 +1,47 @@
+{
+  "ProfileId": "B760-13700K-64GB-990PRO",
+  "ProfileVersion": 1,
+  "Description": "GREEN AVA+ / ASUS TUF B760-PLUS WIFI / Core i7-13700K / 64GB DDR5 / Samsung 990 PRO 1TB / GREEN GP700A-GED V3.1 / DeepCool AG400 PLUS / optional advisory hardware-profile comparison plus bounded 8-minute concurrent production burn-in with MaximumSafe CPU/RAM/NVMe and Direct3D ALU GPU coverage",
+  "Expected": {
+    "CaseModel": "GREEN AVA+",
+    "PsuModel": "GREEN GP700A-GED V3.1 80PLUS BRONZE ATX3.1 700W",
+    "CpuCoolerModel": "DeepCool AG400 PLUS / XuanBing 400 V5 Dual Fan / P/N R-AG400-BKNNMD-G / EAN 6933412727767",
+    "MotherboardModelContains": "TUF GAMING B760-PLUS WIFI",
+    "CpuModelContains": "i7-13700K",
+    "MemoryTotalGB": 64,
+    "MemoryType": "DDR5",
+    "MemoryMinimumConfiguredSpeedMHz": 4000,
+    "StorageModelContains": "Samsung SSD 990 PRO 1TB",
+    "StorageMinimumSizeGB": 900,
+    "GpuModelContains": "Intel(R) UHD Graphics"
+  },
+  "Capture": {
+    "RequirePsuSerial": true,
+    "RequireCpuAtpo": true,
+    "RequireSeal1": true,
+    "RequireSeal2": false
+  },
+  "Thresholds": {
+    "MinimumWinSatMemoryMBps": 15000,
+    "MinimumWinSatCpuCompressionMBps": 300,
+    "MinimumDiskSpdSeqReadMBps": 2500,
+    "MinimumDiskSpdSeqWriteMBps": 1800,
+    "MinimumDiskSpdRandomReadIOPS": 30000,
+    "MinimumBurnInCpuThreadCoveragePercent": 100,
+    "MinimumBurnInCpuAveragePercent": 90,
+    "MinimumBurnInCpuPeakPercent": 95,
+    "MinimumBurnInMemoryPeakPercent": 70,
+    "MinimumBurnInMemoryPlanCoveragePercent": 95,
+    "MaximumBurnInMemoryPeakShortfallPercent": 5,
+    "MinimumBurnInDiskReadMBps": 500,
+    "MinimumBurnInDiskAverageActivePercent": 80,
+    "MinimumBurnInDiskPeakActivePercent": 95,
+    "MinimumBurnInGpuAveragePercent": 70,
+    "MinimumBurnInGpuPeakPercent": 90,
+    "MaximumWheaEvents": 0,
+    "MaximumMemoryVerificationErrors": 0
+  },
+  "BomPolicy": {
+    "Mode": "Advisory"
+  }
+}
