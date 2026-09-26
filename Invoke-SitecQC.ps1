@@ -287,12 +287,16 @@ try {
     # CASE-xxx-Full.json even when the QC pipeline itself crashes.
     try {
         if($null -eq $physical){$physical=[pscustomobject]@{CaseModel=$CaseModel;PsuModel=$PsuModel;PsuSerial=$PsuSerial.Trim();CpuAtpo=$CpuAtpo.Trim();Cooler=$Cooler.Trim();Seal1=$Seal1.Trim();Seal2=$Seal2.Trim()}}
-        if($null -eq $bom){$bom=[pscustomobject]@{Status='ERROR';Checks=@()}}
+        if($null -eq $identity){$identity=[pscustomobject]@{Status='ERROR';FailureCount=1;Checks=@([pscustomobject]@{Name='Identity/runtime execution';Expected='Completed';Actual=$msg;Passed=$false;Severity='Error';Status='ERROR'})}}
+        if($null -eq $profileComparison){$profileComparison=[pscustomobject]@{Enabled=[bool]$EnableProfileComparison;ProfileId=[string]$profile.ProfileId;ProfileVersion=[string]$profile.ProfileVersion;Status=$(if($EnableProfileComparison){'ERROR'}else{'SKIPPED'});MismatchCount=0;Checks=@()}}
+        if($null -eq $bom){$bom=[pscustomobject]@{Status='ERROR';Mode='OptionalProfileComparison';ProfileComparisonEnabled=[bool]$EnableProfileComparison;BlockingStatus='ERROR';ConformanceStatus=[string]$profileComparison.Status;BlockingFailureCount=1;MismatchCount=0;Checks=@($identity.Checks)}}
         if($null -eq $benchmark){$benchmark=[pscustomobject]@{Selection=@($selectedBenchmarkComponents);StartedAt=$runStart.ToString('o');FinishedAt=(Get-Date).ToString('o');Cancelled=$false;RuntimeError=$true;Error=$msg}}
         if($null -eq $benchValidation){$benchValidation=[pscustomobject]@{Status='ERROR';Checks=@([pscustomobject]@{Name='Benchmark/runtime execution';Expected='Completed';Actual=$msg;Passed=$false;Severity='Error';Status='ERROR'})}}
         $partialRun=[pscustomobject]@{
             SchemaVersion='1.2';AssetId=$AssetId;RunId=$runId;Operator=$Operator;StartedAt=$runStart.ToString('o');CompletedAt=(Get-Date).ToString('o');OverallStatus='ERROR'
-            Profile=$profile;Physical=$physical;Hardware=$hardware;BomValidation=$bom;BenchmarkSelection=@($selectedBenchmarkComponents);Benchmark=$benchmark;BenchmarkValidation=$benchValidation
+            HardwareQcStatus='ERROR';IdentityStatus=[string]$identity.Status;BenchmarkQcStatus='ERROR';ProfileComparisonEnabled=[bool]$EnableProfileComparison;ProfileConformanceStatus=[string]$profileComparison.Status
+            BomConformanceStatus=[string]$profileComparison.Status;BomBlockingStatus=[string]$identity.Status
+            Profile=$profile;Physical=$physical;Hardware=$hardware;IdentityValidation=$identity;ProfileComparison=$profileComparison;BomValidation=$bom;BenchmarkSelection=@($selectedBenchmarkComponents);Benchmark=$benchmark;BenchmarkValidation=$benchValidation
             DuplicateSerials=@();PassMarkEvidence=@($passmark)
             Diagnostics=[pscustomobject]@{Events=(Join-Path $runPath 'diagnostics\events.jsonl');FatalError=(Join-Path $runPath 'fatal-error.json');BurnInChildError=(Join-Path $runPath 'diagnostics\burnin-child-error.json')}
             Execution=[pscustomobject]@{Cancelled=$false;CancellationReason='';CancellationRequestPath=$cancelPath;RuntimeError=$true}
