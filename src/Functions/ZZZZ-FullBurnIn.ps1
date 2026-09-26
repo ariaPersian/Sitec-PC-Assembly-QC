@@ -379,6 +379,7 @@ function Get-SitecGraphicsBurnInPlan {
 
     [pscustomobject]@{
         CoverageMode=if($Settings.PSObject.Properties['GraphicsCoverageMode']){[string]$Settings.GraphicsCoverageMode}else{'MaximumSafe'}
+        WorkloadMode=if($Settings.PSObject.Properties['GraphicsWorkloadMode']){[string]$Settings.GraphicsWorkloadMode}else{'DWM'}
         NormalWindows=if($Settings.PSObject.Properties['GraphicsNormalWindows']){[int]$Settings.GraphicsNormalWindows}else{48}
         GlassWindows=if($Settings.PSObject.Properties['GraphicsGlassWindows']){[int]$Settings.GraphicsGlassWindows}else{24}
         DesktopWidth=if($Settings.PSObject.Properties['GraphicsDesktopWidth']){[int]$Settings.GraphicsDesktopWidth}else{1920}
@@ -387,7 +388,8 @@ function Get-SitecGraphicsBurnInPlan {
         WindowHeight=if($Settings.PSObject.Properties['GraphicsWindowHeight']){[int]$Settings.GraphicsWindowHeight}else{900}
         Offscreen=if($Settings.PSObject.Properties['GraphicsOffscreen']){[bool]$Settings.GraphicsOffscreen}else{$true}
         NoLock=if($Settings.PSObject.Properties['GraphicsNoLock']){[bool]$Settings.GraphicsNoLock}else{$true}
-        TargetPeakPercent=if($Settings.PSObject.Properties['GraphicsTargetPeakPercent']){[double]$Settings.GraphicsTargetPeakPercent}else{80}
+        TargetAveragePercent=if($Settings.PSObject.Properties['GraphicsTargetAveragePercent']){[double]$Settings.GraphicsTargetAveragePercent}else{70}
+        TargetPeakPercent=if($Settings.PSObject.Properties['GraphicsTargetPeakPercent']){[double]$Settings.GraphicsTargetPeakPercent}else{90}
     }
 }
 
