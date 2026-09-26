@@ -421,7 +421,12 @@ function Get-SitecLoadSnapshot {
             $m=$engines | Measure-Object -Property UtilizationPercentage -Maximum
             if ($null -ne $m.Maximum) { $gpu=[math]::Min(100,[double]$m.Maximum) }
         }
-    } catch {
+    } catch {}
+
+    # Some Intel/iGPU drivers expose the CIM GPU provider but return stale 0%
+    # values for off-screen WinSAT D3D workloads. Retry through the native
+    # performance-counter path whenever CIM is unavailable or reports zero.
+    if ($null -eq $gpu -or [double]$gpu -le 0) {
         try {
             $c=Get-Counter '\GPU Engine(*)\Utilization Percentage' -ErrorAction Stop
             $m=$c.CounterSamples | Measure-Object -Property CookedValue -Maximum
