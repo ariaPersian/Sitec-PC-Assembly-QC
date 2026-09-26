@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.14.1 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR semantics**.
+Current production workflow: **v3.14.2 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 

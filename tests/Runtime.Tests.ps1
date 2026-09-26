@@ -37,8 +37,8 @@ if ([string]$ssdCheck.Actual -match 'USB-SHOULD') { throw 'USB storage leaked in
 # Compile and execute the native CPU/RAM workers briefly so Windows PowerShell 5.1
 # incompatibilities are caught in CI without running the production 15-minute profile.
 Initialize-SitecBurnInType
-$ciCpu=[SitecQcBurnInV2]::CpuAsync(1,2,50).GetAwaiter().GetResult()
-if ($ciCpu.Iterations -le 0 -or $ciCpu.Threads -ne 2) { throw 'CPU burn-in worker smoke test failed.' }
+$ciCpu=[SitecQcBurnInV2]::CpuAsync(3,2,100).GetAwaiter().GetResult()
+if ($ciCpu.Iterations -le 0 -or $ciCpu.Threads -ne 2 -or $ciCpu.Seconds -lt 1) { throw 'CPU burn-in worker smoke test failed.' }
 $ciMem=[SitecQcBurnInV2]::MemoryAsync(1,128,1).GetAwaiter().GetResult()
 if ($ciMem.Errors -ne 0 -or $ciMem.AllocatedMB -lt 128 -or $ciMem.BytesVerified -le 0) { throw 'Memory burn-in worker smoke test failed.' }
 
