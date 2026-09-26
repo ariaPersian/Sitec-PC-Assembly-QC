@@ -213,7 +213,7 @@ try {
     $msg=$_.Exception.Message
     $fatal=[pscustomobject][ordered]@{
         Timestamp=(Get-Date).ToString('o')
-        Stage=$(if($script:CurrentStage){[string]$script:CurrentStage}else{'Pipeline'})
+        Stage='Pipeline'
         Message=$msg
         Type=$_.Exception.GetType().FullName
         FullyQualifiedErrorId=[string]$_.FullyQualifiedErrorId
