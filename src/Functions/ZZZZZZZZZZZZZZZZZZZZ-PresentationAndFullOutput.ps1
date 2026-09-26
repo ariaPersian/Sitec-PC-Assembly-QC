@@ -97,7 +97,7 @@ function Get-SitecFullExcelInventoryProjection {
         'Benchmark'=$(if($benchmarkStatus -eq 'PASS'){[char]0x2713}else{''})
         'BenchMark Files'=$(if($CertificatePath){[IO.Path]::GetFileName($CertificatePath)}else{''})
         'Build Status'=[string]$Run.OverallStatus
-        'Model and serial Registered'=$(if([string]$Run.OverallStatus -eq 'PASS'){[char]0x2713}else{''})
+        'Model and serial Registered'=$(if([string]$Run.OverallStatus -in @('PASS','PASS_WITH_BOM_MISMATCH')){[char]0x2713}else{''})
         'Case Model'=$(if($physical){[string]$physical.CaseModel}else{''})
         'Motherboard Model'=$(if($hardware -and $hardware.PSObject.Properties['Motherboard']){(([string]$hardware.Motherboard.Manufacturer+' '+[string]$hardware.Motherboard.Model).Trim())}else{''})
         'Box Serial No'=''
