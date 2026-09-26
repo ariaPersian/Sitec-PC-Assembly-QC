@@ -1,8 +1,8 @@
 # Sitec PC Assembly QC
 
-Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
+Windows production-QC application for **hardware inventory, optional production-profile comparison, benchmark/burn-in testing, WHEA error capture, hardware identity/integrity validation, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.15.2 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / advisory BOM conformance / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
+Current production workflow: **v3.16.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / optional profile comparison (OFF by default) / independent identity-integrity validation / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -17,7 +17,7 @@ C:\BaselineQC\
 
 Run `SitecQC.exe` locally from the PC being tested. **Do not connect the company archive USB while hardware discovery or QC is running.** Removable storage is deliberately blocked during QC so a flash drive cannot appear in the storage inventory or contaminate the baseline.
 
-BOM handling is deliberately split into **configuration conformance** and **blocking identity/integrity validation**. In the production profile, CPU/RAM/model/capacity differences are advisory and are reported as `BOM MISMATCH` without classifying otherwise healthy hardware as failed. Missing required serials, duplicate serial identities and PnP device errors remain blocking failures. A healthy benchmark with only advisory differences is recorded as `PASS_WITH_BOM_MISMATCH` internally and displayed as hardware `PASS` with a separate BOM advisory.
+The production profile now acts as a **QC recipe**: it supplies benchmark thresholds, identity-capture requirements and the optional expected-hardware reference. **Hardware/profile comparison is operator-selectable and OFF by default.** When selected, detected CPU/RAM/motherboard/storage/GPU and recorded physical models are compared with the profile and any differences are advisory only. Missing required serials, duplicate serial identities and PnP device errors remain blocking identity/integrity failures regardless of profile-comparison selection. A healthy benchmark with an enabled profile comparison that finds differences is still displayed as hardware `PASS` with a separate profile advisory.
 
 The application:
 
@@ -25,7 +25,7 @@ The application:
 2. extracts its embedded launcher/runtime payload temporarily under `%TEMP%`;
 3. detects the installed hardware;
 4. confirms the Asset ID and derives an Asset-scoped scratch-data folder on `C:`;
-5. validates the expected BOM;
+5. always validates serialized hardware identity/integrity and, only when selected by the operator, compares hardware with the production profile;
 6. runs performance qualification and full-system burn-in;
 7. captures WHEA and sensor evidence;
 8. calculates `SITEC-HWID-V2`;
@@ -62,13 +62,14 @@ The normal operator-facing fields are:
 - **CPU 2D / ATPO** — Intel Full ATPO scanned from the processor 2D matrix or boxed-processor label.
 - **Tamper seal #1** — normally the same value as Asset ID; may be edited when the physical seal uses a different serial.
 
-Profile selection, Operator, and Tamper seal #2 are not production operator fields.
+Profile selection, Operator, and Tamper seal #2 are not production operator fields. The configured QC recipe is shown read-only. The operator may enable **Compare detected hardware with this profile**; it is disabled by default. Hovering over that checkbox/profile display shows the expected hardware in a tooltip.
 
-The approved batch profile currently records:
+The default current-system profile is `B760-13700K-64GB-990PRO` and records:
 
 - Case: `GREEN AVA+`
 - Motherboard: `ASUS TUF GAMING B760-PLUS WIFI`
-- CPU: `Intel Core i7-14700K`
+- CPU: `Intel Core i7-13700K`
+- RAM: `64 GB DDR5` (configured speed >= 4000 MHz)
 - Storage: `Samsung SSD 990 PRO 1TB`
 - PSU: `GREEN GP700A-GED V3.1 80PLUS BRONZE ATX 3.1 700W`
 - CPU cooler: `DeepCool AG400 PLUS / XuanBing 400 V5 Dual Fan`, P/N `R-AG400-BKNNMD-G`
@@ -101,15 +102,16 @@ Before each run, the operator can independently select which hardware categories
 - **Storage / NVMe** — DiskSpd qualification plus sustained storage burn-in;
 - **Graphics / GPU** — graphics workload during burn-in.
 
-All four are selected by default, preserving the previous full-QC behavior. At least one benchmark category must remain selected. Inventory, expected-BOM validation, WHEA monitoring, hardware identity, evidence hashing/signing and report generation always run regardless of benchmark selection. Unselected benchmark categories are recorded as `SKIPPED` and are excluded from pass/fail threshold evaluation.
+All four benchmark categories are selected by default, preserving the previous full-QC behavior. At least one benchmark category must remain selected. Inventory, serialized identity/integrity validation, WHEA monitoring, evidence hashing/signing and report generation always run regardless of benchmark selection. **Profile comparison is a separate optional checkbox and is OFF by default.** Unselected benchmark categories are recorded as `SKIPPED` and are excluded from pass/fail threshold evaluation.
 
-Expected-BOM validation and benchmark execution are independent gates. A BOM mismatch **does not suppress the operator-selected benchmarks**; the selected CPU/RAM/Storage/Graphics tests still run and are reported. The final QC result remains `FAIL` whenever BOM validation fails, even if all selected benchmarks pass.
+Identity/integrity validation, optional profile comparison and benchmark execution are separate concerns. A profile mismatch **never suppresses benchmarks and never makes an otherwise healthy PC fail QC**; it is recorded as `MISMATCH`/advisory. Overall QC failure is driven by blocking identity/integrity or hardware-health checks and selected benchmark gates.
 
-Process outcomes are deliberately distinct: exit code `0` means completed QC `PASS`, exit code `2` means completed QC `FAIL` (for example a BOM mismatch or failed benchmark gate), and exit code `1` means a real application/runtime error. A normal QC `FAIL` publishes the PDF/Baseline/Full JSON but does **not** create `LastFailure` diagnostics; `LastFailure` is reserved for runtime faults.
+Process outcomes are deliberately distinct: exit code `0` means completed QC `PASS` (including an advisory profile mismatch), exit code `2` means completed QC `FAIL` or `CANCELLED` because of blocking identity/integrity or selected benchmark gates, and exit code `1` means a real application/runtime error. A normal QC `FAIL` publishes the PDF/Baseline/Full JSON but does **not** create `LastFailure` diagnostics; `LastFailure` is reserved for runtime faults.
 
 Production QC combines:
 
-- Expected-BOM validation;
+- blocking serialized hardware identity/integrity validation;
+- optional advisory comparison against the current production profile;
 - selected WinSAT CPU and/or memory qualification;
 - **MaximumSafe CPU:** 100% requested duty on every logical processor, with explicit 100% thread-coverage and sustained/peak utilization gates;
 - **MaximumSafe RAM:** deterministic write/verify consumes almost all currently free physical RAM while keeping a dynamic safety reserve of 5% of installed memory, clamped to 2-4 GB; on a typical 64 GB system with about 12 GB already in use, approximately 49-50 GB is requested;
@@ -141,7 +143,7 @@ C:\BaselineQC\
     └── <AssetId>-Full.json
 ```
 
-The PDF is the human-readable handover document. `Baseline.json` is the compact machine-readable record aligned with the fleet/Excel workflow. `Full.json` preserves the complete QC run record, including raw detected hardware, physical identifiers, BOM validation, benchmark/burn-in results, WHEA data, validation results, structured `ErrorSummary`/`ErrorDetails`, duplicate-serial results, PassMark metadata when present, hardware/manifest hashes, and signature-verification metadata when available.
+The PDF is the human-readable handover document. `Baseline.json` is the compact machine-readable record aligned with the fleet/Excel workflow. `Full.json` preserves the complete QC run record, including raw detected hardware, physical identifiers, `IdentityValidation`, `ProfileComparisonEnabled`, `ProfileComparison`, compatibility BOM fields, benchmark/burn-in results, WHEA data, validation results, structured `ErrorSummary`/`ErrorDetails`, duplicate-serial results, PassMark metadata when present, hardware/manifest hashes, and signature-verification metadata when available.
 
 The Baseline JSON includes an `ExcelInventory` projection whose field names align with the master hardware-inventory workbook. Assembly checklist fields that require a real operator action remain intentionally separate from automatically detected hardware/QC values.
 
