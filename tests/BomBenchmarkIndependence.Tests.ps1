@@ -9,8 +9,11 @@ if ($worker -match [regex]::Escape("Benchmark skipped because expected BOM valid
 if ($worker -match [regex]::Escape('if ($bom.Status -eq ''PASS'' -or $ContinueBenchmarkOnBomFailure)')) {
     throw 'Benchmark execution is still conditionally gated by BOM status.'
 }
-if ($worker -notmatch [regex]::Escape("BOM validation failed; running selected benchmarks independently")) {
-    throw 'Independent BOM/benchmark execution status is not present.'
+if ($worker -notmatch [regex]::Escape("BOM profile mismatch recorded; running selected hardware QC normally")) {
+    throw 'Independent advisory-BOM/benchmark execution status is not present.'
+}
+if ($worker -notmatch [regex]::Escape("Blocking BOM/identity validation failed; running selected benchmarks independently")) {
+    throw 'Independent blocking-BOM/benchmark execution status is not present.'
 }
 
 $start=Get-Content -LiteralPath (Join-Path $root 'Start-SitecQC.ps1') -Raw -Encoding UTF8

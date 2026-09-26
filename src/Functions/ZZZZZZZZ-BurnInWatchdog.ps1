@@ -184,7 +184,7 @@ try {
 
         $exitCode=$proc.ExitCode
         $elapsed=((Get-Date)-$started).TotalSeconds
-        if(Test-SitecCancellationRequested -and -not (Test-Path -LiteralPath $resultPath)){
+        if((Test-SitecCancellationRequested) -and -not (Test-Path -LiteralPath $resultPath)){
             $reason='Benchmark cancelled by operator.'
             Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Watchdog' -Status 'CANCELLED' -Level 'WARNING' -Message $reason -Data ([pscustomobject]@{ExitCode=$exitCode;ElapsedSeconds=[math]::Round($elapsed,1)})
             return New-SitecBurnInCancelledResult -DurationSeconds $duration -ActualSeconds $elapsed -Reason $reason

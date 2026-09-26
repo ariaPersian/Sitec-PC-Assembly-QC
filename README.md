@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.15.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR semantics**.
+Current production workflow: **v3.15.1 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / advisory BOM conformance / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -16,6 +16,8 @@ C:\BaselineQC\
 ```
 
 Run `SitecQC.exe` locally from the PC being tested. **Do not connect the company archive USB while hardware discovery or QC is running.** Removable storage is deliberately blocked during QC so a flash drive cannot appear in the storage inventory or contaminate the baseline.
+
+BOM handling is deliberately split into **configuration conformance** and **blocking identity/integrity validation**. In the production profile, CPU/RAM/model/capacity differences are advisory and are reported as `BOM MISMATCH` without classifying otherwise healthy hardware as failed. Missing required serials, duplicate serial identities and PnP device errors remain blocking failures. A healthy benchmark with only advisory differences is recorded as `PASS_WITH_BOM_MISMATCH` internally and displayed as hardware `PASS` with a separate BOM advisory.
 
 The application:
 

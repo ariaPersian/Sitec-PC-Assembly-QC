@@ -133,7 +133,7 @@ function Refresh-SitecHardware {
         $TxtHeaderStatus.Text='READY';$TxtStage.Text='Ready'
         $usbCount=@($h.Storage | Where-Object { [string]$_.BusType -match '^(USB|SD|MMC)$' }).Count
         if ($usbCount -gt 0) { $TxtMessage.Text="Disconnect removable storage before running QC. Detected removable storage devices: $usbCount" }
-        else { $TxtMessage.Text='Hardware discovery completed. Confirm Asset ID, scan PSU serial and CPU ATPO, then run selected QC. BOM mismatches do not suppress selected benchmarks; they still affect the final QC status.' }
+        else { $TxtMessage.Text='Hardware discovery completed. Confirm Asset ID, scan PSU serial and CPU ATPO, then run selected QC. BOM profile differences are reported separately; in Advisory mode they do not fail otherwise healthy hardware.' }
     } catch {
         [Windows.MessageBox]::Show($_.Exception.Message,'Hardware detection failed') | Out-Null
         $TxtHeaderStatus.Text='ERROR';$TxtStage.Text='Error';$TxtMessage.Text=$_.Exception.Message
@@ -262,8 +262,29 @@ $timer.Add_Tick({
         if($script:StartedAt){$TxtElapsed.Text=('Elapsed: '+(Format-SitecUiDuration (((Get-Date)-$script:StartedAt).TotalSeconds)))}
         $TxtRemaining.Text='Remaining: 00:00'
         if ($script:Worker.ExitCode -eq 0) {
-            $TxtHeaderStatus.Text='PASS';$TxtHeaderStatus.Foreground='#A8E6BE';$TxtStage.Text='Complete'
-            $TxtMessage.Text="QC complete: PASS. PDF + Baseline JSON + Full JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB."
+            $publishedStatus='PASS';$bomConformance='MATCH';$bomWarnings=@()
+            $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $asset
+            if(Test-Path -LiteralPath $fullJson){
+                try {
+                    $full=Get-Content -LiteralPath $fullJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if($full.PSObject.Properties['OverallStatus']){$publishedStatus=[string]$full.OverallStatus}
+                    if($full.PSObject.Properties['BomConformanceStatus']){$bomConformance=[string]$full.BomConformanceStatus}
+                    elseif($full.BomValidation -and $full.BomValidation.PSObject.Properties['ConformanceStatus']){$bomConformance=[string]$full.BomValidation.ConformanceStatus}
+                    if($full.BomValidation -and $full.BomValidation.PSObject.Properties['Checks']){
+                        $bomWarnings=@($full.BomValidation.Checks | Where-Object Status -eq 'WARNING' | Select-Object -ExpandProperty Name)
+                    }
+                } catch {}
+            }
+            $TxtHeaderStatus.Text='PASS';$TxtHeaderStatus.Foreground='#A8E6BE'
+            if($publishedStatus -eq 'PASS_WITH_BOM_MISMATCH' -or $bomConformance -eq 'MISMATCH'){
+                $TxtStage.Text='Complete - BOM mismatch advisory'
+                $summary=($bomWarnings | Select-Object -First 4) -join '; '
+                if([string]::IsNullOrWhiteSpace($summary)){$summary='Configuration differs from the selected BOM profile.'}
+                $TxtMessage.Text=("Hardware QC PASS. BOM profile mismatch recorded as advisory: {0} This is not a hardware failure. PDF + Baseline JSON + Full JSON saved to {1}\Output." -f $summary,$BaselineRoot)
+            } else {
+                $TxtStage.Text='Complete'
+                $TxtMessage.Text="QC complete: PASS. PDF + Baseline JSON + Full JSON saved to $BaselineRoot\Output. Close SitecQC before connecting the archive USB."
+            }
         }
         elseif ($script:Worker.ExitCode -eq 2) {
             $reason='';$publishedStatus='FAIL'

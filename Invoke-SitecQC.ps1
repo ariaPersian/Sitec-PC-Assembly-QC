@@ -100,16 +100,20 @@ try {
         })
         $bom.Checks=@($bom.Checks)+$dupChecks
         $bom.Status='FAIL'
+        if($bom.PSObject.Properties['BlockingStatus']){$bom.BlockingStatus='FAIL'}
+        if($bom.PSObject.Properties['BlockingFailureCount']){$bom.BlockingFailureCount=[int]$bom.BlockingFailureCount+$dupChecks.Count}
     }
     Write-SitecStepResult -RunPath $runPath -Step '12-bom-validation' -Value $bom | Out-Null
-    Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'BOM' -Status $bom.Status -Level $(if($bom.Status -eq 'PASS'){'INFO'}else{'ERROR'}) -Message ("BOM validation {0}; checks={1}; duplicate serials={2}." -f $bom.Status,@($bom.Checks).Count,$duplicates.Count) -Data $bom
+    $bomLevel=if($bom.Status -eq 'PASS'){'INFO'}elseif($bom.Status -eq 'MISMATCH'){'WARNING'}else{'ERROR'}
+    $bomMessage=if($bom.Status -eq 'MISMATCH'){'BOM profile mismatch recorded (advisory); hardware health testing will continue normally.'}else{("BOM validation {0}; checks={1}; duplicate serials={2}." -f $bom.Status,@($bom.Checks).Count,$duplicates.Count)}
+    Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'BOM' -Status $bom.Status -Level $bomLevel -Message $bomMessage -Data $bom
 
     $runStart=Get-Date
     $passmark=@(Import-SitecPassMarkEvidence -Context $context -RunPath $runPath -Since $runStart -AssetId $AssetId)
-    # Benchmark execution is intentionally independent from expected-BOM validation.
-    # A BOM mismatch still fails OverallStatus, but it must never suppress the
-    # operator-selected CPU/RAM/Storage/Graphics qualification.
-    Set-WorkerStatus 'Benchmark' 28 $(if($bom.Status -eq 'PASS'){'Running selected performance qualification and burn-in'}else{'BOM validation failed; running selected benchmarks independently'})
+    # Benchmark execution is independent from BOM conformance. Advisory profile
+    # mismatches are documented but do not classify a healthy system as failed.
+    $benchmarkMessage=if($bom.Status -eq 'PASS'){'Running selected performance qualification and burn-in'}elseif($bom.Status -eq 'MISMATCH'){'BOM profile mismatch recorded; running selected hardware QC normally'}else{'Blocking BOM/identity validation failed; running selected benchmarks independently'}
+    Set-WorkerStatus 'Benchmark' 28 $benchmarkMessage
     $benchmark=Invoke-SitecBenchmarkSuite -Context $context -RunPath $runPath
     if (-not $benchmark.PSObject.Properties['Selection']) { $benchmark | Add-Member -NotePropertyName Selection -NotePropertyValue @($selectedBenchmarkComponents) }
     Write-SitecStepResult -RunPath $runPath -Step '50-benchmark-result' -Value $benchmark | Out-Null
@@ -127,7 +131,10 @@ try {
     Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Validation' -Step 'Benchmark' -Status $benchValidation.Status -Level $(if($benchValidation.Status -eq 'PASS'){'INFO'}elseif($benchValidation.Status -eq 'CANCELLED'){'WARNING'}else{'ERROR'}) -Message ("Benchmark validation completed: {0}." -f $benchValidation.Status) -Data $benchValidation
 
     $failureSummary=Write-SitecFailureSummary -RunPath $runPath -BomValidation $bom -BenchmarkValidation $benchValidation
-    $overall=if($cancelled){'CANCELLED'}elseif ($bom.Status -eq 'PASS' -and ($benchValidation.Status -eq 'PASS' -or $benchValidation.Status -eq 'SKIPPED')) {'PASS'} else {'FAIL'}
+    $bomBlockingStatus=if($bom.PSObject.Properties['BlockingStatus']){[string]$bom.BlockingStatus}elseif($bom.Status -in @('PASS','MISMATCH')){'PASS'}else{'FAIL'}
+    $bomConformanceStatus=if($bom.PSObject.Properties['ConformanceStatus']){[string]$bom.ConformanceStatus}elseif($bom.Status -eq 'MISMATCH'){'MISMATCH'}else{'MATCH'}
+    $hardwareQcStatus=if($benchValidation.Status -in @('PASS','SKIPPED')){'PASS'}elseif($benchValidation.Status -eq 'CANCELLED'){'CANCELLED'}else{'FAIL'}
+    $overall=if($cancelled){'CANCELLED'}elseif($hardwareQcStatus -eq 'PASS' -and $bomBlockingStatus -eq 'PASS' -and $bomConformanceStatus -eq 'MISMATCH'){'PASS_WITH_BOM_MISMATCH'}elseif($hardwareQcStatus -eq 'PASS' -and $bomBlockingStatus -eq 'PASS'){'PASS'}else{'FAIL'}
     $run=[pscustomobject]@{
         SchemaVersion='1.2'
         AssetId=$AssetId
@@ -136,6 +143,9 @@ try {
         StartedAt=$runStart.ToString('o')
         CompletedAt=(Get-Date).ToString('o')
         OverallStatus=$overall
+        HardwareQcStatus=$hardwareQcStatus
+        BomConformanceStatus=$bomConformanceStatus
+        BomBlockingStatus=$bomBlockingStatus
         Profile=$profile
         Physical=$physical
         Hardware=$hardware
@@ -168,7 +178,7 @@ try {
     Write-SitecEvidenceHashes -RunPath $runPath | Out-Null
     Write-SitecDiagnosticEvent -RunPath $runPath -Stage 'Report' -Step 'Certificate' -Status 'PASS' -Message ("Certificate generated. HTML={0}; PDF={1}." -f $report.HtmlPath,$report.PdfPath)
 
-    if ($overall -eq 'PASS') {
+    if ($overall -in @('PASS','PASS_WITH_BOM_MISMATCH')) {
         $baselineRoot=Join-Path $assetRoot 'Baseline'
         $baselineManifest=Join-Path $baselineRoot 'hardware-qc-manifest.json'
         if (-not (Test-Path -LiteralPath $baselineManifest)) {
@@ -199,7 +209,10 @@ try {
     $result | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $runPath 'result.json') -Encoding UTF8
 
     if ($overall -eq 'PASS') {
-        Set-WorkerStatus 'Complete' 100 ("QC complete: PASS | HWID SHA-256: {0}" -f $security.HardwareIdentitySha256) 'COMPLETE' 0
+        Set-WorkerStatus 'Complete' 100 ("QC complete: PASS | BOM MATCH | HWID SHA-256: {0}" -f $security.HardwareIdentitySha256) 'COMPLETE' 0
+    } elseif($overall -eq 'PASS_WITH_BOM_MISMATCH') {
+        $mismatchNames=@($bom.Checks | Where-Object Status -eq 'WARNING' | Select-Object -ExpandProperty Name)
+        Set-WorkerStatus 'Complete' 100 ("QC complete: PASS | BOM MISMATCH (advisory): {0} | HWID SHA-256: {1}" -f (($mismatchNames | Select-Object -First 4) -join '; '),$security.HardwareIdentitySha256) 'COMPLETE' 0
     } elseif($overall -eq 'CANCELLED') {
         Set-WorkerStatus 'Cancelled' 100 ("Benchmark cancelled by operator | Partial evidence finalized | Full JSON preserved") 'CANCELLED' 0
     } else {
@@ -208,7 +221,7 @@ try {
         Set-WorkerStatus 'Complete' 100 ("QC complete: FAIL | Causes: {0} | See Full JSON, failure-summary.json and diagnostics\process.log" -f $short) 'COMPLETE' 0
     }
 
-    if ($overall -eq 'PASS') { exit 0 } else { exit 2 }
+    if ($overall -in @('PASS','PASS_WITH_BOM_MISMATCH')) { exit 0 } else { exit 2 }
 } catch {
     $msg=$_.Exception.Message
     $fatal=[pscustomobject][ordered]@{

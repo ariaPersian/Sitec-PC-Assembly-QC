@@ -15,6 +15,8 @@ function Get-SitecStatusClass {
     param([string]$Status)
     switch ($Status) {
         'PASS' { 'pass' }
+        'PASS_WITH_BOM_MISMATCH' { 'pass' }
+        'MISMATCH' { 'warn' }
         'WARNING' { 'warn' }
         'CANCELLED' { 'warn' }
         'CANCELLING' { 'warn' }
