@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$')][string]$AssetId,
-    [string]$ProfileId='B760-14700K-990PRO',[string]$Operator=$env:USERNAME,[string]$CaseModel='',[string]$PsuModel='',[string]$PsuSerial='',[string]$CpuAtpo='',[string]$Cooler='',[string]$Seal1='',[string]$Seal2='',
+    [string]$ProfileId='B760-13700K-64GB-990PRO',[string]$Operator=$env:USERNAME,[string]$CaseModel='',[string]$PsuModel='',[string]$PsuSerial='',[string]$CpuAtpo='',[string]$Cooler='',[string]$Seal1='',[string]$Seal2='',
     [string]$BenchmarkComponents='CPU,Memory,Disk,Graphics',
     [Parameter(Mandatory)][string]$BaselineRoot,[string]$WorkingRoot='', [switch]$ContinueBenchmarkOnBomFailure
 )
