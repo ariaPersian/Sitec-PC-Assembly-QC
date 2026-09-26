@@ -17,7 +17,7 @@ if ($compact -match [regex]::Escape('if($script:exitCode -ne 0){$phase=''saving 
 }
 
 $start=Get-Content -LiteralPath (Join-Path $root 'Start-SitecQC.ps1') -Raw -Encoding UTF8
-if ($start -notmatch [regex]::Escape("elseif ($script:Worker.ExitCode -eq 2)")) {
+if ($start -notmatch [regex]::Escape('elseif ($script:Worker.ExitCode -eq 2)')) {
     throw 'GUI does not have an explicit completed-QC-FAIL branch.'
 }
 if ($start -notmatch [regex]::Escape("'Complete - QC FAIL'")) {
