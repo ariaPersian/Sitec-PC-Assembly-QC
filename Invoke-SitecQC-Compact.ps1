@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$')][string]$AssetId,
     [string]$ProfileId='B760-13700K-64GB-990PRO',[string]$Operator=$env:USERNAME,[string]$CaseModel='',[string]$PsuModel='',[string]$PsuSerial='',[string]$CpuAtpo='',[string]$Cooler='',[string]$Seal1='',[string]$Seal2='',
     [string]$BenchmarkComponents='CPU,Memory,Disk,Graphics',
-    [Parameter(Mandatory)][string]$BaselineRoot,[string]$WorkingRoot='', [switch]$ContinueBenchmarkOnBomFailure
+    [Parameter(Mandatory)][string]$BaselineRoot,[string]$WorkingRoot='', [switch]$EnableProfileComparison, [switch]$ContinueBenchmarkOnBomFailure
 )
 $ErrorActionPreference='Stop';$root=Split-Path -Parent $MyInvocation.MyCommand.Path
 Import-Module (Join-Path $root 'src\Sitec.QC.psm1') -Force
@@ -19,7 +19,7 @@ function Save-ExactFailure([string]$Message,[System.Exception]$Exception,[string
     [ordered]@{schema='sitecqc.failure.v1';asset_id=$AssetId;timestamp=(Get-Date).ToString('o');phase=$Phase;message=$Message;exception_type=if($Exception){$Exception.GetType().FullName}else{$null};stack_trace=if($Exception){$Exception.ToString()}else{$null};exit_code=$script:exitCode}|ConvertTo-Json -Depth 8|Set-Content (Join-Path $out ($AssetId+'-LastFailure.json')) -Encoding UTF8
 }
 $started=Get-Date;$script:exitCode=1;$runDir=$null;$phase='initialization'
-$args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Q $legacyWorker),'-AssetId',(Q $AssetId),'-ProfileId',(Q $ProfileId),'-Operator',(Q $Operator),'-CaseModel',(Q $CaseModel),'-PsuModel',(Q $PsuModel),'-PsuSerial',(Q $PsuSerial),'-CpuAtpo',(Q $CpuAtpo),'-Cooler',(Q $Cooler),'-Seal1',(Q $Seal1),'-Seal2',(Q $Seal2),'-BenchmarkComponents',(Q $BenchmarkComponents),'-DataRoot',(Q $WorkingRoot));if($ContinueBenchmarkOnBomFailure){$args+='-ContinueBenchmarkOnBomFailure'}
+$args=@('-NoProfile','-ExecutionPolicy','Bypass','-File',(Q $legacyWorker),'-AssetId',(Q $AssetId),'-ProfileId',(Q $ProfileId),'-Operator',(Q $Operator),'-CaseModel',(Q $CaseModel),'-PsuModel',(Q $PsuModel),'-PsuSerial',(Q $PsuSerial),'-CpuAtpo',(Q $CpuAtpo),'-Cooler',(Q $Cooler),'-Seal1',(Q $Seal1),'-Seal2',(Q $Seal2),'-BenchmarkComponents',(Q $BenchmarkComponents),'-DataRoot',(Q $WorkingRoot));if($EnableProfileComparison){$args+='-EnableProfileComparison'};if($ContinueBenchmarkOnBomFailure){$args+='-ContinueBenchmarkOnBomFailure'}
 try {
     $phase='worker';$child=Start-Process powershell.exe -ArgumentList ($args-join ' ') -PassThru -WindowStyle Hidden -Wait;$script:exitCode=$child.ExitCode
     $phase='locating run';$runRoot=Join-Path $WorkingRoot ("Assets\{0}\Runs"-f $AssetId)
