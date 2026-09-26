@@ -77,6 +77,7 @@ function New-SitecCustomerReport {
     $h=$Run.Hardware;$p=$Run.Physical;$b=$Run.Benchmark
     $stress=$b.Stress
     if ($null -eq $stress -and $b.PSObject.Properties['BurnIn']) { $stress=$b.BurnIn }
+    $selection=if($b.PSObject.Properties['Selection'] -and @($b.Selection).Count -gt 0){@($b.Selection)}else{@('CPU','Memory','Disk','Graphics')}
     $statusClass=Get-SitecStatusClass $Run.OverallStatus
 
     $completed=''
@@ -129,11 +130,18 @@ function New-SitecCustomerReport {
 
     $benchPairs=@()
     if ($b.WinSAT) {
-        $benchPairs += [pscustomobject]@{Label='WinSAT';Value=$b.WinSAT.Status}
-        $benchPairs += [pscustomobject]@{Label='CPU compression';Value=$(if($null -ne $b.WinSAT.CpuCompressionMBps){"$($b.WinSAT.CpuCompressionMBps) MB/s"}else{''})}
-        $benchPairs += [pscustomobject]@{Label='Memory bandwidth';Value=$(if($null -ne $b.WinSAT.MemoryMBps){"$($b.WinSAT.MemoryMBps) MB/s"}else{''})}
+        if ($selection -contains 'CPU') {
+            $cpuStatus=if($b.WinSAT.PSObject.Properties['CpuStatus']){$b.WinSAT.CpuStatus}else{$b.WinSAT.Status}
+            $benchPairs += [pscustomobject]@{Label='WinSAT CPU';Value=$cpuStatus}
+            $benchPairs += [pscustomobject]@{Label='CPU compression';Value=$(if($null -ne $b.WinSAT.CpuCompressionMBps){"$($b.WinSAT.CpuCompressionMBps) MB/s"}else{''})}
+        }
+        if ($selection -contains 'Memory') {
+            $memoryStatus=if($b.WinSAT.PSObject.Properties['MemoryStatus']){$b.WinSAT.MemoryStatus}else{$b.WinSAT.Status}
+            $benchPairs += [pscustomobject]@{Label='WinSAT memory';Value=$memoryStatus}
+            $benchPairs += [pscustomobject]@{Label='Memory bandwidth';Value=$(if($null -ne $b.WinSAT.MemoryMBps){"$($b.WinSAT.MemoryMBps) MB/s"}else{''})}
+        }
     }
-    if ($b.DiskSpd) {
+    if (($selection -contains 'Disk') -and $b.DiskSpd) {
         $benchPairs += [pscustomobject]@{Label='DiskSpd qualification';Value=$b.DiskSpd.Status}
         $benchPairs += [pscustomobject]@{Label='SSD sequential read';Value=$(if($null -ne $b.DiskSpd.SequentialReadMBps){"$($b.DiskSpd.SequentialReadMBps) MB/s"}else{''})}
         $benchPairs += [pscustomobject]@{Label='SSD sequential write';Value=$(if($null -ne $b.DiskSpd.SequentialWriteMBps){"$($b.DiskSpd.SequentialWriteMBps) MB/s"}else{''})}
@@ -144,19 +152,29 @@ function New-SitecCustomerReport {
 
     $burnPairs=@()
     if ($stress -and $stress.Status -ne 'SKIPPED') {
+        $selectedDisplay=@($selection | ForEach-Object { if($_ -eq 'Memory'){'RAM'}elseif($_ -eq 'Disk'){'NVMe / Storage'}elseif($_ -eq 'Graphics'){'Graphics / GPU'}else{$_} })
+        $burnPairs += [pscustomobject]@{Label='Selected tests';Value=($selectedDisplay -join ' + ')}
         $burnPairs += [pscustomobject]@{Label='Burn-in status';Value=$stress.Status}
         $burnPairs += [pscustomobject]@{Label='Duration';Value=("{0} s" -f $stress.ActualSeconds)}
         if (-not [bool]$stress.TimedOut) {
-            $burnPairs += [pscustomobject]@{Label='CPU duty / threads';Value=("{0}% / {1}" -f $stress.CpuStress.DutyPercent,$stress.CpuStress.Threads)}
-            $burnPairs += [pscustomobject]@{Label='RAM allocated';Value=("{0} MB" -f $stress.MemoryVerification.AllocatedMB)}
-            $burnPairs += [pscustomobject]@{Label='RAM verified / errors';Value=("{0} MB / {1}" -f $stress.MemoryVerification.VerifiedMB,$stress.MemoryVerification.Errors)}
-            $burnPairs += [pscustomobject]@{Label='NVMe sustained read';Value=$(if($null -ne $stress.DiskStress.ReadMBps){"$($stress.DiskStress.ReadMBps) MB/s"}else{$stress.DiskStress.Status})}
-            $burnPairs += [pscustomobject]@{Label='Graphics workload';Value=$stress.GraphicsStress.Status}
+            if ($selection -contains 'CPU') {
+                $burnPairs += [pscustomobject]@{Label='CPU duty / threads';Value=("{0}% / {1}" -f $stress.CpuStress.DutyPercent,$stress.CpuStress.Threads)}
+            }
+            if ($selection -contains 'Memory') {
+                $burnPairs += [pscustomobject]@{Label='RAM allocated';Value=("{0} MB" -f $stress.MemoryVerification.AllocatedMB)}
+                $burnPairs += [pscustomobject]@{Label='RAM verified / errors';Value=("{0} MB / {1}" -f $stress.MemoryVerification.VerifiedMB,$stress.MemoryVerification.Errors)}
+            }
+            if ($selection -contains 'Disk') {
+                $burnPairs += [pscustomobject]@{Label='NVMe sustained read';Value=$(if($null -ne $stress.DiskStress.ReadMBps){"$($stress.DiskStress.ReadMBps) MB/s"}else{$stress.DiskStress.Status})}
+            }
+            if ($selection -contains 'Graphics') {
+                $burnPairs += [pscustomobject]@{Label='Graphics workload';Value=$stress.GraphicsStress.Status}
+            }
             if ($stress.Utilization) {
-                $burnPairs += [pscustomobject]@{Label='CPU utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.CPU.Average,$stress.Utilization.CPU.Peak)}
-                $burnPairs += [pscustomobject]@{Label='RAM utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.Memory.Average,$stress.Utilization.Memory.Peak)}
-                $burnPairs += [pscustomobject]@{Label='Disk utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.Disk.Average,$stress.Utilization.Disk.Peak)}
-                $burnPairs += [pscustomobject]@{Label='GPU utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.GPU.Average,$stress.Utilization.GPU.Peak)}
+                if ($selection -contains 'CPU') { $burnPairs += [pscustomobject]@{Label='CPU utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.CPU.Average,$stress.Utilization.CPU.Peak)} }
+                if ($selection -contains 'Memory') { $burnPairs += [pscustomobject]@{Label='RAM utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.Memory.Average,$stress.Utilization.Memory.Peak)} }
+                if ($selection -contains 'Disk') { $burnPairs += [pscustomobject]@{Label='Disk utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.Disk.Average,$stress.Utilization.Disk.Peak)} }
+                if ($selection -contains 'Graphics') { $burnPairs += [pscustomobject]@{Label='GPU utilization avg / peak';Value=("{0}% / {1}%" -f $stress.Utilization.GPU.Average,$stress.Utilization.GPU.Peak)} }
             }
         } else {
             $burnPairs += [pscustomobject]@{Label='Timeout';Value=$stress.Error}
