@@ -325,24 +325,28 @@ function Invoke-SitecDiskSpd {
     )
     $results = @{}
     $ok = $true
-    foreach ($t in $tests) {
-        $out = Join-Path $benchDir ($t.Name + '.xml')
-        $err = Join-Path $benchDir ($t.Name + '.err.txt')
-        $r = Invoke-SitecProcess -FilePath $exe -Arguments $t.Args -StdOutPath $out -StdErrPath $err -TimeoutSeconds 180
-        if ($r.ExitCode -ne 0) { $ok=$false; continue }
-        try { $results[$t.Name] = Get-DiskSpdMetrics -XmlPath $out } catch { $ok=$false }
+    try {
+        foreach ($t in $tests) {
+            $out = Join-Path $benchDir ($t.Name + '.xml')
+            $err = Join-Path $benchDir ($t.Name + '.err.txt')
+            $r = Invoke-SitecProcess -FilePath $exe -Arguments $t.Args -StdOutPath $out -StdErrPath $err -TimeoutSeconds 180
+            if ($r.ExitCode -ne 0) { $ok=$false; continue }
+            try { $results[$t.Name] = Get-DiskSpdMetrics -XmlPath $out } catch { $ok=$false }
+        }
+        [pscustomobject]@{
+            Available=$true
+            Required=$true
+            Status=if ($ok) {'PASS'} else {'FAIL'}
+            SequentialReadMBps=if ($results['seq-read']) {$results['seq-read'].ReadMBps} else {$null}
+            SequentialWriteMBps=if ($results['seq-write']) {$results['seq-write'].WriteMBps} else {$null}
+            RandomReadIOPS=if ($results['rnd-read']) {$results['rnd-read'].ReadIOPS} else {$null}
+            RandomReadLatencyMs=if ($results['rnd-read']) {$results['rnd-read'].AverageReadLatencyMs} else {$null}
+            Raw=$results
+        }
     }
-    Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $testDir -Force -ErrorAction SilentlyContinue
-    [pscustomobject]@{
-        Available=$true
-        Required=$true
-        Status=if ($ok) {'PASS'} else {'FAIL'}
-        SequentialReadMBps=if ($results['seq-read']) {$results['seq-read'].ReadMBps} else {$null}
-        SequentialWriteMBps=if ($results['seq-write']) {$results['seq-write'].WriteMBps} else {$null}
-        RandomReadIOPS=if ($results['rnd-read']) {$results['rnd-read'].ReadIOPS} else {$null}
-        RandomReadLatencyMs=if ($results['rnd-read']) {$results['rnd-read'].AverageReadLatencyMs} else {$null}
-        Raw=$results
+    finally {
+        Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
