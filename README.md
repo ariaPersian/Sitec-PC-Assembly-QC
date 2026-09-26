@@ -99,7 +99,9 @@ Before each run, the operator can independently select which hardware categories
 - **Storage / NVMe** — DiskSpd qualification plus sustained storage burn-in;
 - **Graphics / GPU** — graphics workload during burn-in.
 
-All four are selected by default, preserving the previous full-QC behavior. At least one benchmark category must remain selected. Inventory, expected-BOM validation, WHEA monitoring, hardware identity, evidence hashing/signing and report generation always run regardless of benchmark selection. Unselected benchmark categories are recorded as `SKIPPED` and are excluded from pass/fail threshold evaluation.\n\nExpected-BOM validation and benchmark execution are independent gates. A BOM mismatch **does not suppress the operator-selected benchmarks**; the selected CPU/RAM/Storage/Graphics tests still run and are reported. The final QC result remains `FAIL` whenever BOM validation fails, even if all selected benchmarks pass.
+All four are selected by default, preserving the previous full-QC behavior. At least one benchmark category must remain selected. Inventory, expected-BOM validation, WHEA monitoring, hardware identity, evidence hashing/signing and report generation always run regardless of benchmark selection. Unselected benchmark categories are recorded as `SKIPPED` and are excluded from pass/fail threshold evaluation.
+
+Expected-BOM validation and benchmark execution are independent gates. A BOM mismatch **does not suppress the operator-selected benchmarks**; the selected CPU/RAM/Storage/Graphics tests still run and are reported. The final QC result remains `FAIL` whenever BOM validation fails, even if all selected benchmarks pass.
 
 Production QC combines:
 
