@@ -71,12 +71,12 @@ $benchmark=[pscustomobject]@{
 
 $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
 Assert-True ($result.Status -eq 'PASS') 'Healthy MaximumSafe CPU/NVMe/GPU validation did not pass.'
-Assert-True ($result.Checks | Where-Object Name -eq 'CPU logical processor coverage') 'CPU thread-coverage check is missing.'
-Assert-True ($result.Checks | Where-Object Name -eq 'CPU peak load during burn-in') 'CPU peak-load check is missing.'
-Assert-True ($result.Checks | Where-Object Name -eq 'NVMe average active time during burn-in') 'NVMe active-time check is missing.'
-Assert-True ($result.Checks | Where-Object Name -eq 'NVMe peak active time during burn-in') 'NVMe peak-active check is missing.'
-Assert-True ($result.Checks | Where-Object Name -eq 'GPU average load during burn-in') 'GPU average-load check is missing.'
-Assert-True ($result.Checks | Where-Object Name -eq 'GPU peak load during burn-in') 'GPU peak-load check is missing.'
+Assert-True (@($result.Checks | Where-Object Name -eq 'CPU logical processor coverage').Count -gt 0) 'CPU thread-coverage check is missing.'
+Assert-True (@($result.Checks | Where-Object Name -eq 'CPU peak load during burn-in').Count -gt 0) 'CPU peak-load check is missing.'
+Assert-True (@($result.Checks | Where-Object Name -eq 'NVMe average active time during burn-in').Count -gt 0) 'NVMe active-time check is missing.'
+Assert-True (@($result.Checks | Where-Object Name -eq 'NVMe peak active time during burn-in').Count -gt 0) 'NVMe peak-active check is missing.'
+Assert-True (@($result.Checks | Where-Object Name -eq 'GPU average load during burn-in').Count -gt 0) 'GPU average-load check is missing.'
+Assert-True (@($result.Checks | Where-Object Name -eq 'GPU peak load during burn-in').Count -gt 0) 'GPU peak-load check is missing.'
 
 $benchmark.BurnIn.CpuStress.ThreadCoveragePercent=75
 $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
