@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.13.1 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / explicit PASS-FAIL-ERROR semantics**.
+Current production workflow: **v3.13.2 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / capacity-aware RAM burn-in / explicit PASS-FAIL-ERROR semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -111,6 +111,7 @@ Production QC combines:
 - selected WinSAT CPU and/or memory qualification;
 - selected CPU stress across logical processors;
 - selected deterministic RAM write/verify testing;
+- capacity-aware RAM pressure: the allocator targets 72% whole-system memory usage while reserving at least 4 GB; `MemoryMaximumMB=0` means no fixed 8 GB cap, so 16/32/64/128 GB systems scale automatically;
 - selected Microsoft DiskSpd sequential and random storage qualification;
 - concurrent burn-in using only the selected CPU/RAM/NVMe/graphics workloads;
 - Windows WHEA hardware-error monitoring;
