@@ -182,9 +182,17 @@ function New-SitecCustomerReport {
     }
     $burnin=ConvertTo-SitecCompactPairs $burnPairs
 
-    $allChecks=@($Run.BomValidation.Checks)+@($Run.BenchmarkValidation.Checks)
+    $bomChecks=@()
+    if ($Run.PSObject.Properties['BomValidation'] -and $Run.BomValidation -and $Run.BomValidation.PSObject.Properties['Checks']) {
+        $bomChecks=@($Run.BomValidation.Checks)
+    }
+    $benchmarkChecks=@()
+    if ($Run.PSObject.Properties['BenchmarkValidation'] -and $Run.BenchmarkValidation -and $Run.BenchmarkValidation.PSObject.Properties['Checks']) {
+        $benchmarkChecks=@($Run.BenchmarkValidation.Checks)
+    }
+    $allChecks=@($bomChecks)+@($benchmarkChecks)
     $failedChecks=@($allChecks | Where-Object { [string]$_.Status -ne 'PASS' })
-    $checks=if([string]$Run.OverallStatus -eq 'PASS'){@($Run.BenchmarkValidation.Checks)}else{$failedChecks}
+    $checks=if([string]$Run.OverallStatus -eq 'PASS'){@($benchmarkChecks)}else{$failedChecks}
     $checkTitle=if([string]$Run.OverallStatus -eq 'PASS'){'QC Validation'}else{'Failure Details'}
     $checkTable=ConvertTo-SitecCompactTable -Rows $checks -Columns @(
         [pscustomobject]@{Label='QC check';Getter={param($x)$x.Name}},[pscustomobject]@{Label='Expected';Getter={param($x)$x.Expected}},
