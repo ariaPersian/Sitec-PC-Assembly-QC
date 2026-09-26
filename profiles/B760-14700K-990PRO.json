@@ -29,6 +29,8 @@
     "MinimumDiskSpdRandomReadIOPS": 30000,
     "MinimumBurnInCpuAveragePercent": 80,
     "MinimumBurnInMemoryPeakPercent": 70,
+    "MinimumBurnInMemoryPlanCoveragePercent": 95,
+    "MaximumBurnInMemoryPeakShortfallPercent": 5,
     "MinimumBurnInDiskReadMBps": 500,
     "MinimumBurnInGpuPeakPercent": 10,
     "MaximumWheaEvents": 0,
