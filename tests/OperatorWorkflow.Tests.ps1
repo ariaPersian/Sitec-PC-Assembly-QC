@@ -40,6 +40,7 @@ if ($start -match '\$TxtProfile\b') { throw 'Start-SitecQC still references the 
 $profileSource="'-ProfileId',(Q ([string]`$profile.ProfileId))"
 if ($start -notmatch [regex]::Escape($profileSource)) { throw 'Profile ID is not sourced internally from the configured BOM profile.' }
 if ($start -notmatch [regex]::Escape("'-BenchmarkComponents',(Q `$benchmarkCsv)")) { throw 'Selected benchmark components are not forwarded to the QC worker.' }
+if ($start -notmatch [regex]::Escape("'-ContinueBenchmarkOnBomFailure'")) { throw 'GUI does not preserve benchmark execution after a BOM mismatch.' }
 if ($start -notmatch [regex]::Escape("Select at least one hardware component to benchmark.")) { throw 'GUI does not reject an empty benchmark selection.' }
 
 $iconPath=Join-Path $root 'ui\AppIcon.ico'
