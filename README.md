@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.10.0 / BaselineQC-local / Asset-scoped QC data root**.
+Current production workflow: **v3.11.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -92,14 +92,23 @@ Optional values with no real data are omitted from the customer report instead o
 
 ## QC / benchmark stack
 
+Before each run, the operator can independently select which hardware categories will be benchmarked:
+
+- **CPU** — WinSAT CPU qualification plus CPU burn-in;
+- **RAM / Memory** — WinSAT memory bandwidth plus deterministic RAM write/verify;
+- **Storage / NVMe** — DiskSpd qualification plus sustained storage burn-in;
+- **Graphics / GPU** — graphics workload during burn-in.
+
+All four are selected by default, preserving the previous full-QC behavior. At least one benchmark category must remain selected. Inventory, expected-BOM validation, WHEA monitoring, hardware identity, evidence hashing/signing and report generation always run regardless of benchmark selection. Unselected benchmark categories are recorded as `SKIPPED` and are excluded from pass/fail threshold evaluation.
+
 Production QC combines:
 
 - Expected-BOM validation;
-- WinSAT CPU and memory qualification;
-- CPU stress across logical processors;
-- deterministic RAM write/verify testing;
-- Microsoft DiskSpd sequential and random storage qualification;
-- concurrent CPU + RAM + NVMe + graphics burn-in;
+- selected WinSAT CPU and/or memory qualification;
+- selected CPU stress across logical processors;
+- selected deterministic RAM write/verify testing;
+- selected Microsoft DiskSpd sequential and random storage qualification;
+- concurrent burn-in using only the selected CPU/RAM/NVMe/graphics workloads;
 - Windows WHEA hardware-error monitoring;
 - LibreHardwareMonitor sensor sampling when supported;
 - optional PassMark/BurnInTest supporting evidence.
