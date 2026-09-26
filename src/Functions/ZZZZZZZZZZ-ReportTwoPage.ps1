@@ -182,13 +182,32 @@ function New-SitecCustomerReport {
     }
     $burnin=ConvertTo-SitecCompactPairs $burnPairs
 
-    $checks=@($Run.BenchmarkValidation.Checks)
+    $allChecks=@($Run.BomValidation.Checks)+@($Run.BenchmarkValidation.Checks)
+    $failedChecks=@($allChecks | Where-Object { [string]$_.Status -ne 'PASS' })
+    $checks=if([string]$Run.OverallStatus -eq 'PASS'){@($Run.BenchmarkValidation.Checks)}else{$failedChecks}
+    $checkTitle=if([string]$Run.OverallStatus -eq 'PASS'){'QC Validation'}else{'Failure Details'}
     $checkTable=ConvertTo-SitecCompactTable -Rows $checks -Columns @(
         [pscustomobject]@{Label='QC check';Getter={param($x)$x.Name}},[pscustomobject]@{Label='Expected';Getter={param($x)$x.Expected}},
         [pscustomobject]@{Label='Actual';Getter={param($x)$x.Actual}},[pscustomobject]@{Label='Status';Getter={param($x)$x.Status}}
     )
-    $failureNames=@($checks | Where-Object Status -eq 'FAIL' | Select-Object -ExpandProperty Name)
-    $failureText=if($failureNames.Count){($failureNames -join '; ')}else{'None'}
+    $failureDescriptions=@($failedChecks | ForEach-Object { '{0}: expected [{1}], actual [{2}]' -f $_.Name,$_.Expected,$_.Actual })
+    $errorCandidates=@($b.WinSAT,$b.DiskSpd)
+    if ($stress) {
+        $errorCandidates += $stress
+        if ($stress.PSObject.Properties['DiskStress']) { $errorCandidates += $stress.DiskStress }
+        if ($stress.PSObject.Properties['GraphicsStress']) { $errorCandidates += $stress.GraphicsStress }
+    }
+    foreach ($candidate in $errorCandidates) {
+        if ($candidate -and $candidate.PSObject.Properties['Error'] -and -not [string]::IsNullOrWhiteSpace([string]$candidate.Error)) {
+            $failureDescriptions += [string]$candidate.Error
+        }
+    }
+    $failureDescriptions=@($failureDescriptions | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -Unique)
+    $failureText=if($failureDescriptions.Count){($failureDescriptions -join ' | ')}else{'None'}
+    $exactFailureSection=''
+    if ([string]$Run.OverallStatus -ne 'PASS' -and $failureDescriptions.Count -gt 0) {
+        $exactFailureSection='<div class="sec"><h2>Exact Error / Failure Reason</h2><div class="errorbox">'+(ConvertTo-SitecHtml $failureText)+'</div></div>'
+    }
 
     $hwid='';$manifestHash=''
     if ($Run.Security) {
@@ -200,7 +219,7 @@ function New-SitecCustomerReport {
     $html=@"
 <!doctype html><html><head><meta charset="utf-8"><title>$(ConvertTo-SitecHtml $Run.AssetId) QC Certificate</title>
 <style>
-@page{size:A4;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;font-family:Segoe UI,Arial,sans-serif;color:#18212b}.sheet{width:210mm;height:297mm;padding:8mm 9mm;overflow:hidden;page-break-after:always;break-after:page;background:#fff}.sheet:last-child{page-break-after:auto;break-after:auto}.head{height:19mm;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #263746;padding-bottom:3mm;margin-bottom:3mm}.brand{font-size:21px;font-weight:800}.subtitle{font-size:10px;color:#65727d}.overall{font-size:20px;font-weight:800;padding:5px 12px;border-radius:7px}.pass{background:#e7f7ed;color:#147a39}.fail{background:#fdeaea;color:#b42318}.warn{background:#fff4d8;color:#946200}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:7px}.meta>div{border:1px solid #dce3e8;border-radius:5px;padding:5px}.k{font-size:8px;color:#62717d;text-transform:uppercase;display:block}.v{font-size:9.5px;font-weight:600;word-break:break-word}.sec{margin:5px 0 7px}.sec h2{font-size:11.5px;margin:0 0 4px;padding-bottom:2px;border-bottom:1px solid #dce3e8;color:#263746}.pairs{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px}.pair{display:grid;grid-template-columns:38% 62%;border-bottom:1px solid #edf0f2;padding:2px 0}.pair .k{font-size:8px}.pair .v{font-size:8.8px}table{width:100%;border-collapse:collapse;table-layout:auto;font-size:7.8px}th,td{border-bottom:1px solid #e8ecef;padding:3px 4px;text-align:left;vertical-align:top;word-break:break-word}th{background:#f4f7f9;font-weight:700;color:#40505c}.hashbox{border:1px solid #cfd8df;border-radius:6px;padding:6px;margin:5px 0}.hashlabel{font-size:8px;color:#667;text-transform:uppercase}.hash{font-family:Consolas,monospace;font-size:8.5px;font-weight:700;word-break:break-all;line-height:1.25}.summaryline{font-size:9px;margin:3px 0}.footer{position:absolute;left:9mm;right:9mm;bottom:7mm;border-top:1px solid #dce3e8;padding-top:3px;font-size:7.5px;color:#667}.sheet{position:relative}@media print{html,body{width:210mm}.sheet{margin:0;box-shadow:none}}
+@page{size:A4;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;font-family:Segoe UI,Arial,sans-serif;color:#18212b}.sheet{width:210mm;height:297mm;padding:8mm 9mm;overflow:hidden;page-break-after:always;break-after:page;background:#fff}.sheet:last-child{page-break-after:auto;break-after:auto}.head{height:19mm;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #263746;padding-bottom:3mm;margin-bottom:3mm}.brand{font-size:21px;font-weight:800}.subtitle{font-size:10px;color:#65727d}.overall{font-size:20px;font-weight:800;padding:5px 12px;border-radius:7px}.pass{background:#e7f7ed;color:#147a39}.fail{background:#fdeaea;color:#b42318}.warn{background:#fff4d8;color:#946200}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:7px}.meta>div{border:1px solid #dce3e8;border-radius:5px;padding:5px}.k{font-size:8px;color:#62717d;text-transform:uppercase;display:block}.v{font-size:9.5px;font-weight:600;word-break:break-word}.sec{margin:5px 0 7px}.sec h2{font-size:11.5px;margin:0 0 4px;padding-bottom:2px;border-bottom:1px solid #dce3e8;color:#263746}.pairs{display:grid;grid-template-columns:1fr 1fr;gap:3px 8px}.pair{display:grid;grid-template-columns:38% 62%;border-bottom:1px solid #edf0f2;padding:2px 0}.pair .k{font-size:8px}.pair .v{font-size:8.8px}table{width:100%;border-collapse:collapse;table-layout:auto;font-size:7.8px}th,td{border-bottom:1px solid #e8ecef;padding:3px 4px;text-align:left;vertical-align:top;word-break:break-word}th{background:#f4f7f9;font-weight:700;color:#40505c}.errorbox{border:1px solid #e0b4b0;background:#fff4f2;color:#7a271a;border-radius:5px;padding:5px;font-size:7.8px;line-height:1.3;word-break:break-word}.hashbox{border:1px solid #cfd8df;border-radius:6px;padding:6px;margin:5px 0}.hashlabel{font-size:8px;color:#667;text-transform:uppercase}.hash{font-family:Consolas,monospace;font-size:8.5px;font-weight:700;word-break:break-all;line-height:1.25}.summaryline{font-size:9px;margin:3px 0}.footer{position:absolute;left:9mm;right:9mm;bottom:7mm;border-top:1px solid #dce3e8;padding-top:3px;font-size:7.5px;color:#667}.sheet{position:relative}@media print{html,body{width:210mm}.sheet{margin:0;box-shadow:none}}
 </style></head><body>
 <div class="sheet">
 <div class="head"><div><div class="brand">$(ConvertTo-SitecHtml $Context.Settings.Reporting.CompanyName)</div><div class="subtitle">PC Assembly &amp; Hardware Identity Certificate - Page 1 of 2</div></div><div class="overall $statusClass">$(ConvertTo-SitecHtml $Run.OverallStatus)</div></div>
@@ -217,7 +236,8 @@ function New-SitecCustomerReport {
 <div class="head"><div><div class="brand">$(ConvertTo-SitecHtml $Context.Settings.Reporting.CompanyName)</div><div class="subtitle">Benchmark, Stability &amp; Evidence - Page 2 of 2</div></div><div class="overall $statusClass">$(ConvertTo-SitecHtml $Run.OverallStatus)</div></div>
 <div class="sec"><h2>Performance Qualification</h2>$benchmark</div>
 <div class="sec"><h2>Full System Burn-In</h2>$burnin</div>
-<div class="sec"><h2>QC Validation</h2>$checkTable</div>
+<div class="sec"><h2>$checkTitle</h2>$checkTable</div>
+$exactFailureSection
 <div class="sec"><h2>Result</h2><div class="summaryline"><b>Overall:</b> $(ConvertTo-SitecHtml $Run.OverallStatus)</div><div class="summaryline"><b>Failing gates:</b> $(ConvertTo-SitecHtml $failureText)</div><div class="summaryline"><b>Evidence protection:</b> $(ConvertTo-SitecHtml $securityText)</div></div>
 <div class="hashbox"><div class="hashlabel">Hardware Identity SHA-256</div><div class="hash">$(ConvertTo-SitecHtml $hwid)</div></div>
 <div class="hashbox"><div class="hashlabel">Manifest SHA-256</div><div class="hash">$(ConvertTo-SitecHtml $manifestHash)</div></div>
