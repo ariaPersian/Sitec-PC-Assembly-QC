@@ -23,13 +23,49 @@ try {
     if(Test-Path $runRoot){$runDir=Get-ChildItem $runRoot -Directory -ErrorAction SilentlyContinue|Where-Object {$_.LastWriteTime-ge$started.AddMinutes(-1)}|Sort-Object LastWriteTime -Descending|Select-Object -First 1;if(-not $runDir){$runDir=Get-ChildItem $runRoot -Directory -ErrorAction SilentlyContinue|Sort-Object LastWriteTime -Descending|Select-Object -First 1}}
     if($runDir){
         $resultPath=Join-Path $runDir.FullName 'result.json';$manifestPath=Join-Path $runDir.FullName 'hardware-qc-manifest.json';$sourcePdf=Join-Path $runDir.FullName 'QC-Certificate.pdf'
-        if(Test-Path $resultPath){try{$result=Get-Content $resultPath -Raw -Encoding UTF8|ConvertFrom-Json;if($result.Pdf -and(Test-Path ([string]$result.Pdf))){$sourcePdf=[string]$result.Pdf};if($result.Manifest -and(Test-Path ([string]$result.Manifest))){$manifestPath=[string]$result.Manifest}}catch{Save-ExactFailure $_.Exception.Message $_ 'reading worker result'}}
-        $phase='publishing PDF';$publishedPdf=$null;if(Test-Path $sourcePdf){$publishedPdf=Publish-SitecCertificate -BaselineRoot $BaselineRoot -AssetId $AssetId -SourcePdf $sourcePdf}
+        if(Test-Path $resultPath){
+            try {
+                $result=Get-Content $resultPath -Raw -Encoding UTF8|ConvertFrom-Json
+                if($result.Pdf -and(Test-Path ([string]$result.Pdf))){$sourcePdf=[string]$result.Pdf}
+                if($result.Manifest -and(Test-Path ([string]$result.Manifest))){$manifestPath=[string]$result.Manifest}
+            } catch {
+                throw ('Unable to read the completed QC result: '+$_.Exception.Message)
+            }
+        }
+        $phase='publishing PDF';$publishedPdf=$null
+        if(Test-Path $sourcePdf){$publishedPdf=Publish-SitecCertificate -BaselineRoot $BaselineRoot -AssetId $AssetId -SourcePdf $sourcePdf}
         $phase='publishing Full JSON';$publishedBaseline=$null
-        if(Test-Path $manifestPath){$publishedBaseline=Publish-SitecBaselineJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -CertificatePath $publishedPdf;[void](Publish-SitecFullJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -ResultPath $resultPath -CertificatePath $publishedPdf -BaselinePath $publishedBaseline);if($publishedBaseline -and(Test-Path $publishedBaseline)){Remove-Item $publishedBaseline -Force -ErrorAction SilentlyContinue}}
-        if($script:exitCode -ne 0){$phase='saving failure evidence';[void](Save-SitecSupportBundle -BaselineRoot $BaselineRoot -AssetId $AssetId -RunPath $runDir.FullName);Save-ExactFailure ('QC worker exited with code '+$script:exitCode) $null $phase}
-        else{$oldFailure=Get-SitecFailureBundlePath -BaselineRoot $BaselineRoot -AssetId $AssetId;Remove-Item $oldFailure -Force -ErrorAction SilentlyContinue;Remove-Item (Join-Path $BaselineRoot 'Output' ($AssetId+'-LastFailure.json')) -Force -ErrorAction SilentlyContinue}
-    } elseif($script:exitCode -ne 0){Save-ExactFailure ('QC worker exited with code '+$script:exitCode) $null $phase}
-} catch {Save-ExactFailure $_.Exception.Message $_ $phase;throw}
+        if(Test-Path $manifestPath){
+            $publishedBaseline=Publish-SitecBaselineJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -CertificatePath $publishedPdf
+            [void](Publish-SitecFullJson -BaselineRoot $BaselineRoot -AssetId $AssetId -ManifestPath $manifestPath -ResultPath $resultPath -CertificatePath $publishedPdf -BaselinePath $publishedBaseline)
+            if($publishedBaseline -and(Test-Path $publishedBaseline)){Remove-Item $publishedBaseline -Force -ErrorAction SilentlyContinue}
+        }
+
+        if($script:exitCode -notin @(0,2)){
+            $phase='saving runtime failure evidence'
+            [void](Save-SitecSupportBundle -BaselineRoot $BaselineRoot -AssetId $AssetId -RunPath $runDir.FullName)
+            Save-ExactFailure ('QC worker runtime error; exit code '+$script:exitCode) $null $phase
+        } else {
+            # Exit 0 = QC PASS; exit 2 = completed QC with one or more failed gates.
+            # Neither is an application/runtime error, so stale runtime-failure evidence
+            # must not be retained or created.
+            $oldFailure=Get-SitecFailureBundlePath -BaselineRoot $BaselineRoot -AssetId $AssetId
+            Remove-Item $oldFailure -Force -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $BaselineRoot 'Output' ($AssetId+'-LastFailure.json')) -Force -ErrorAction SilentlyContinue
+        }
+    } elseif($script:exitCode -eq 2){
+        $script:exitCode=1
+        Save-ExactFailure 'QC worker reported a completed FAIL result, but its run directory could not be located.' $null 'locating run'
+    } elseif($script:exitCode -ne 0){
+        Save-ExactFailure ('QC worker runtime error; exit code '+$script:exitCode) $null $phase
+    }
+} catch {
+    $script:exitCode=1
+    try { Save-ExactFailure $_.Exception.Message $_ $phase } catch {}
+    Write-Error $_ -ErrorAction Continue
+}
 finally {Remove-SitecLocalQcResidue -WorkingRoot $WorkingRoot}
-exit $script:exitCode
+
+if($script:exitCode -eq 0){exit 0}
+if($script:exitCode -eq 2){exit 2}
+exit 1
