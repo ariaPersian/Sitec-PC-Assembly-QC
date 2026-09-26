@@ -43,17 +43,17 @@ $ciMem=[SitecQcBurnInV2]::MemoryAsync(1,128,1).GetAwaiter().GetResult()
 if ($ciMem.Errors -ne 0 -or $ciMem.AllocatedMB -lt 128 -or $ciMem.BytesVerified -le 0) { throw 'Memory burn-in worker smoke test failed.' }
 
 $burnIn=[pscustomobject]@{
-    Status='PASS';Required=$true;DurationSeconds=900;ActualSeconds=901.2
-    CpuStress=[pscustomobject]@{Seconds=900;Threads=28;DutyPercent=85;HashWorkMBps=1234;WorkUnitsPerSecond=1234;Iterations=1000000}
-    MemoryVerification=[pscustomobject]@{RequestedMB=9000;AllocatedMB=9000;VerifiedMB=900000;Errors=0;Seconds=900;Passes=100;TargetSystemUsagePercent=78}
-    DiskStress=[pscustomobject]@{Enabled=$true;Status='PASS';ReadMBps=3500;ReadIOPS=55000;AverageReadLatencyMs=0.4;BlockSizeKB=64;QueueDepth=16;Threads=4;WritePercent=0}
-    GraphicsStress=[pscustomobject]@{Enabled=$true;Required=$false;Status='PASS';Engine='WinSAT DWM composition workload'}
+    Status='PASS';Required=$true;DurationSeconds=480;ActualSeconds=481.2
+    CpuStress=[pscustomobject]@{Enabled=$true;Status='PASS';CoverageMode='MaximumSafe';Seconds=480;LogicalProcessors=28;Threads=28;ThreadCoveragePercent=100;DutyPercent=100;HashWorkMBps=1234;WorkUnitsPerSecond=1234;Iterations=1000000}
+    MemoryVerification=[pscustomobject]@{Enabled=$true;Status='PASS';RequestedMB=10000;AllocatedMB=10000;VerifiedMB=900000;Errors=0;Seconds=480;Passes=100;CoverageMode='MaximumSafe';TargetSystemUsagePercent=90;ExpectedSystemUsagePercent=90;SafeCoverageTargetMB=10000;AllocationCoveragePercent=100;ReserveMB=2048}
+    DiskStress=[pscustomobject]@{Enabled=$true;Status='PASS';CoverageMode='MaximumSafe';ReadMBps=3500;ReadIOPS=55000;AverageReadLatencyMs=0.4;TargetSizeMB=16384;BlockSizeKB=64;QueueDepth=32;Threads=4;WritePercent=0}
+    GraphicsStress=[pscustomobject]@{Enabled=$true;Required=$true;Status='PASS';CoverageMode='MaximumSafe';TargetPeakPercent=80;Engine='WinSAT DWM composition workload'}
     Utilization=[pscustomobject]@{
-        SampleCount=180
-        CPU=[pscustomobject]@{Average=96.2;Peak=100;Samples=180}
-        Memory=[pscustomobject]@{Average=77.4;Peak=80.1;Samples=180}
-        Disk=[pscustomobject]@{Average=62.1;Peak=100;Samples=180}
-        GPU=[pscustomobject]@{Average=28.5;Peak=44.0;Samples=180}
+        SampleCount=96
+        CPU=[pscustomobject]@{Average=96.2;Peak=100;Samples=96}
+        Memory=[pscustomobject]@{Average=88.4;Peak=92.1;Samples=96}
+        Disk=[pscustomobject]@{Average=92.1;Peak=100;Samples=96}
+        GPU=[pscustomobject]@{Average=55.5;Peak=85.0;Samples=96}
     }
     Sensors=@();LoadSamples=@()
 }
