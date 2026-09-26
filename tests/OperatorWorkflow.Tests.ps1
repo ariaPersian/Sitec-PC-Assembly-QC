@@ -19,6 +19,13 @@ Assert-HasControl 'TxtPsuSerial'
 Assert-HasControl 'TxtCpuAtpo'
 Assert-HasControl 'TxtSeal1'
 Assert-HasControl 'TxtProfileDisplay'
+Assert-HasControl 'ChkBenchCpu'
+Assert-HasControl 'ChkBenchMemory'
+Assert-HasControl 'ChkBenchDisk'
+Assert-HasControl 'ChkBenchGraphics'
+foreach ($name in @('ChkBenchCpu','ChkBenchMemory','ChkBenchDisk','ChkBenchGraphics')) {
+    if (-not $w.FindName($name).IsChecked) { throw "Benchmark component is not enabled by default: $name" }
+}
 
 Assert-NoControl 'TxtProfile'
 Assert-NoControl 'TxtOperator'
