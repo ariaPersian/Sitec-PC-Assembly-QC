@@ -16,6 +16,8 @@ function Get-SitecStatusClass {
     switch ($Status) {
         'PASS' { 'pass' }
         'WARNING' { 'warn' }
+        'CANCELLED' { 'warn' }
+        'CANCELLING' { 'warn' }
         'SKIPPED' { 'muted' }
         default { 'fail' }
     }
