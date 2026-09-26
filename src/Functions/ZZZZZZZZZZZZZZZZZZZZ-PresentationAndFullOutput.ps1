@@ -209,6 +209,8 @@ function Publish-SitecFullJson {
     $excelInventory=Get-SitecFullExcelInventoryProjection -Run $run -CertificatePath $CertificatePath
     if($run.PSObject.Properties['ExcelInventory']){$run.ExcelInventory=$excelInventory}else{$run|Add-Member -NotePropertyName ExcelInventory -NotePropertyValue $excelInventory}
 
+    $outputRoot=Get-SitecPublishedReportRoot -BaselineRoot $BaselineRoot
+    New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
     $destination=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $AssetId
     $run | ConvertTo-Json -Depth 40 | Set-Content -LiteralPath $destination -Encoding UTF8
     $destination
