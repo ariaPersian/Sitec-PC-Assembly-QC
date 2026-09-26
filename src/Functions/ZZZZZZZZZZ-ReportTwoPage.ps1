@@ -186,7 +186,9 @@ function New-SitecCustomerReport {
             if ($selection -contains 'Graphics') {
                 $burnPairs += [pscustomobject]@{Label='Graphics workload';Value=$stress.GraphicsStress.Status}
                 if($stress.GraphicsStress.PSObject.Properties['CoverageMode']){
-                    $burnPairs += [pscustomobject]@{Label='GPU mode / target';Value=("{0} / peak >= {1}% / {2}" -f $stress.GraphicsStress.CoverageMode,$stress.GraphicsStress.TargetPeakPercent,$stress.GraphicsStress.Resolution)}
+                    $gpuTarget=if($stress.GraphicsStress.PSObject.Properties['TargetPeakPercent']){$stress.GraphicsStress.TargetPeakPercent}else{''}
+                    $gpuResolution=if($stress.GraphicsStress.PSObject.Properties['Resolution']){[string]$stress.GraphicsStress.Resolution}else{''}
+                    $burnPairs += [pscustomobject]@{Label='GPU mode / target';Value=("{0} / peak >= {1}% / {2}" -f $stress.GraphicsStress.CoverageMode,$gpuTarget,$gpuResolution)}
                 }
             }
             if ($stress.Utilization) {
