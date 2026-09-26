@@ -159,32 +159,39 @@ function Test-SitecExpectedBom {
         [Parameter(Mandatory)]$Profile
     )
 
+    $mode='Strict'
+    if ($Profile.PSObject.Properties['BomPolicy'] -and $Profile.BomPolicy -and $Profile.BomPolicy.PSObject.Properties['Mode']) {
+        $mode=[string]$Profile.BomPolicy.Mode
+    }
+    if($mode -notin @('Strict','Advisory')){$mode='Strict'}
+    $specSeverity=if($mode -eq 'Advisory'){'Warning'}else{'Error'}
+
     $e=$Profile.Expected
     $checks=@()
-    $checks += New-SitecCheck 'Case model' ([string]$e.CaseModel) ([string]$Physical.CaseModel) ([string]$Physical.CaseModel -eq [string]$e.CaseModel)
-    $checks += New-SitecCheck 'PSU model' ([string]$e.PsuModel) ([string]$Physical.PsuModel) ([string]$Physical.PsuModel -eq [string]$e.PsuModel)
-    $checks += New-SitecCheck 'Motherboard model' ([string]$e.MotherboardModelContains) ([string]$Hardware.Motherboard.Model) ([string]$Hardware.Motherboard.Model -like ('*'+[string]$e.MotherboardModelContains+'*'))
-    $checks += New-SitecCheck 'CPU model' ([string]$e.CpuModelContains) ([string]$Hardware.CPU.Model) ([string]$Hardware.CPU.Model -like ('*'+[string]$e.CpuModelContains+'*'))
-    $checks += New-SitecCheck 'RAM total' ("$($e.MemoryTotalGB) GB") ("$($Hardware.MemoryTotalGB) GB") ([double]$Hardware.MemoryTotalGB -eq [double]$e.MemoryTotalGB)
+    $checks += New-SitecCheck 'Case model' ([string]$e.CaseModel) ([string]$Physical.CaseModel) ([string]$Physical.CaseModel -eq [string]$e.CaseModel) $specSeverity
+    $checks += New-SitecCheck 'PSU model' ([string]$e.PsuModel) ([string]$Physical.PsuModel) ([string]$Physical.PsuModel -eq [string]$e.PsuModel) $specSeverity
+    $checks += New-SitecCheck 'Motherboard model' ([string]$e.MotherboardModelContains) ([string]$Hardware.Motherboard.Model) ([string]$Hardware.Motherboard.Model -like ('*'+[string]$e.MotherboardModelContains+'*')) $specSeverity
+    $checks += New-SitecCheck 'CPU model' ([string]$e.CpuModelContains) ([string]$Hardware.CPU.Model) ([string]$Hardware.CPU.Model -like ('*'+[string]$e.CpuModelContains+'*')) $specSeverity
+    $checks += New-SitecCheck 'RAM total' ("$($e.MemoryTotalGB) GB") ("$($Hardware.MemoryTotalGB) GB") ([double]$Hardware.MemoryTotalGB -eq [double]$e.MemoryTotalGB) $specSeverity
 
     $ramTypes=@($Hardware.Memory | Select-Object -ExpandProperty Type -Unique)
-    $checks += New-SitecCheck 'RAM type' ([string]$e.MemoryType) ($ramTypes -join ', ') ($ramTypes -contains [string]$e.MemoryType)
+    $checks += New-SitecCheck 'RAM type' ([string]$e.MemoryType) ($ramTypes -join ', ') ($ramTypes -contains [string]$e.MemoryType) $specSeverity
     $speedMeasurement=$Hardware.Memory | Measure-Object ConfiguredSpeedMHz -Minimum
     $minSpeed=if ($null -ne $speedMeasurement.Minimum) {[int]$speedMeasurement.Minimum}else{0}
-    $checks += New-SitecCheck 'RAM configured speed' (">= $($e.MemoryMinimumConfiguredSpeedMHz) MHz") ("$minSpeed MHz") ($minSpeed -ge [int]$e.MemoryMinimumConfiguredSpeedMHz)
+    $checks += New-SitecCheck 'RAM configured speed' (">= $($e.MemoryMinimumConfiguredSpeedMHz) MHz") ("$minSpeed MHz") ($minSpeed -ge [int]$e.MemoryMinimumConfiguredSpeedMHz) $specSeverity
 
     $storage=@(Get-SitecIdentityStorage -Hardware $Hardware -Profile $Profile)
-    $checks += New-SitecCheck 'Storage model' ([string]$e.StorageModelContains) (($storage | Select-Object -ExpandProperty Model) -join '; ') ($storage.Count -gt 0)
+    $checks += New-SitecCheck 'Storage model' ([string]$e.StorageModelContains) (($storage | Select-Object -ExpandProperty Model) -join '; ') ($storage.Count -gt 0) $specSeverity
     $storageMeasurement=$storage | Measure-Object SizeGB -Maximum
     $largest=if ($null -ne $storageMeasurement.Maximum) {[double]$storageMeasurement.Maximum}else{0}
-    $checks += New-SitecCheck 'Storage capacity' (">= $($e.StorageMinimumSizeGB) GB") ("$largest GB") ($largest -ge [double]$e.StorageMinimumSizeGB)
+    $checks += New-SitecCheck 'Storage capacity' (">= $($e.StorageMinimumSizeGB) GB") ("$largest GB") ($largest -ge [double]$e.StorageMinimumSizeGB) $specSeverity
 
     if (-not [string]::IsNullOrWhiteSpace([string]$e.GpuModelContains)) {
         $gpuMatch=@($Hardware.Graphics | Where-Object { $_.Name -like ('*'+[string]$e.GpuModelContains+'*') })
         $checks += New-SitecCheck 'Graphics' ([string]$e.GpuModelContains) (($Hardware.Graphics | Select-Object -ExpandProperty Name) -join '; ') ($gpuMatch.Count -gt 0) 'Warning'
     }
     if (-not [string]::IsNullOrWhiteSpace([string]$e.CpuCoolerModel)) {
-        $checks += New-SitecCheck 'CPU cooler' ([string]$e.CpuCoolerModel) ([string]$Physical.Cooler) ([string]$Physical.Cooler -eq [string]$e.CpuCoolerModel)
+        $checks += New-SitecCheck 'CPU cooler' ([string]$e.CpuCoolerModel) ([string]$Physical.Cooler) ([string]$Physical.Cooler -eq [string]$e.CpuCoolerModel) $specSeverity
     }
 
     $capture=$Profile.Capture
@@ -208,16 +215,25 @@ function Test-SitecExpectedBom {
         if (-not $item.Required) { continue }
         $actual=[string]$item.Value
         $ok=Test-SitecUsefulIdentifier $actual
-        $checks += New-SitecCheck ([string]$item.Name) 'Present' $actual $ok
+        $checks += New-SitecCheck ([string]$item.Name) 'Present' $actual $ok 'Error'
     }
 
     if (@($Hardware.PnPErrors).Count -gt 0) {
-        $checks += New-SitecCheck 'PnP device errors' '0' ([string]@($Hardware.PnPErrors).Count) $false
+        $checks += New-SitecCheck 'PnP device errors' '0' ([string]@($Hardware.PnPErrors).Count) $false 'Error'
     }
-    $failed=@($checks | Where-Object { -not $_.Passed -and $_.Severity -ne 'Warning' })
-    [pscustomobject]@{Status=if($failed.Count -eq 0){'PASS'}else{'FAIL'};Checks=@($checks)}
-}
 
+    $blockingFailed=@($checks | Where-Object { -not $_.Passed -and $_.Severity -ne 'Warning' })
+    $advisoryMismatch=@($checks | Where-Object { -not $_.Passed -and $_.Severity -eq 'Warning' })
+    [pscustomobject]@{
+        Status=$(if($blockingFailed.Count -gt 0){'FAIL'}elseif($advisoryMismatch.Count -gt 0){'MISMATCH'}else{'PASS'})
+        Mode=$mode
+        BlockingStatus=$(if($blockingFailed.Count -eq 0){'PASS'}else{'FAIL'})
+        ConformanceStatus=$(if($advisoryMismatch.Count -eq 0){'MATCH'}else{'MISMATCH'})
+        BlockingFailureCount=$blockingFailed.Count
+        MismatchCount=$advisoryMismatch.Count
+        Checks=@($checks)
+    }
+}
 function Get-SitecSensorSnapshot {
     param([Parameter(Mandatory)]$Context)
     if (-not $Context.Settings.Sensors.Enabled) { return @() }
