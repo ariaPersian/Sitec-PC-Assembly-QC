@@ -12,7 +12,7 @@ if ($compact -notmatch [regex]::Escape('if($script:exitCode -eq 2){exit 2}')) {
 if ($compact -notmatch [regex]::Escape("QC worker runtime error; exit code")) {
     throw 'Runtime error diagnostics are not explicitly classified.'
 }
-if ($compact -match [regex]::Escape("if($script:exitCode -ne 0){$phase='saving failure evidence'")) {
+if ($compact -match [regex]::Escape('if($script:exitCode -ne 0){$phase=''saving failure evidence''')) {
     throw 'Legacy behavior still creates LastFailure evidence for every non-zero QC result.'
 }
 
