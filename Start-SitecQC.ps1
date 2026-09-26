@@ -43,6 +43,10 @@ $TxtExpectedSummary=C 'TxtExpectedSummary'
 $TxtPsuSerial=C 'TxtPsuSerial'
 $TxtCpuAtpo=C 'TxtCpuAtpo'
 $TxtSeal1=C 'TxtSeal1'
+$ChkBenchCpu=C 'ChkBenchCpu'
+$ChkBenchMemory=C 'ChkBenchMemory'
+$ChkBenchDisk=C 'ChkBenchDisk'
+$ChkBenchGraphics=C 'ChkBenchGraphics'
 $BtnDetect=C 'BtnDetect'
 $BtnRun=C 'BtnRun'
 $BtnOpenLast=C 'BtnOpenLast'
@@ -153,6 +157,14 @@ $BtnRun.Add_Click({
         if (Get-SitecCaptureFlag 'RequireSeal1' $true) { $required += [pscustomobject]@{Name='Tamper seal #1';Value=$TxtSeal1.Text} }
         foreach ($item in $required) { if ([string]::IsNullOrWhiteSpace([string]$item.Value)) { throw "$($item.Name) must be scanned or confirmed before final QC." } }
 
+        $benchmarkComponents=@()
+        if ($ChkBenchCpu.IsChecked) { $benchmarkComponents += 'CPU' }
+        if ($ChkBenchMemory.IsChecked) { $benchmarkComponents += 'Memory' }
+        if ($ChkBenchDisk.IsChecked) { $benchmarkComponents += 'Disk' }
+        if ($ChkBenchGraphics.IsChecked) { $benchmarkComponents += 'Graphics' }
+        if ($benchmarkComponents.Count -eq 0) { throw 'Select at least one hardware component to benchmark.' }
+        $benchmarkCsv=$benchmarkComponents -join ','
+
         $script:WorkRoot=New-SitecWorkingRoot -AssetId $asset -BaseDataRoot ([string]$context.Settings.DataRoot)
         $worker=Join-Path $root 'Invoke-SitecQC-Compact.ps1'
         $argList=@(
@@ -160,12 +172,14 @@ $BtnRun.Add_Click({
             '-AssetId',(Q $asset),'-ProfileId',(Q ([string]$profile.ProfileId)),'-Operator',(Q $automaticOperator),
             '-CaseModel',(Q ([string]$profile.Expected.CaseModel)),'-PsuModel',(Q ([string]$profile.Expected.PsuModel)),'-PsuSerial',(Q $TxtPsuSerial.Text.Trim()),
             '-CpuAtpo',(Q $TxtCpuAtpo.Text.Trim()),'-Cooler',(Q ([string]$profile.Expected.CpuCoolerModel)),'-Seal1',(Q $TxtSeal1.Text.Trim()),
+            '-BenchmarkComponents',(Q $benchmarkCsv),
             '-BaselineRoot',(Q $BaselineRoot),'-WorkingRoot',(Q $script:WorkRoot)
         )
         $script:StartedAt=Get-Date;$script:CurrentStatus=$null;$script:LastReport=$null
         $script:Worker=Start-Process powershell.exe -ArgumentList ($argList -join ' ') -PassThru -WindowStyle Hidden
         $BtnRun.IsEnabled=$false;$BtnDetect.IsEnabled=$false;$BtnOpenLast.IsEnabled=$false
-        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched. Scratch data: {0} | Final output: {1}\Output" -f $script:WorkRoot,$BaselineRoot)
+        @($ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$false }
+        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched for [{0}]. Scratch data: {1} | Final output: {2}\Output" -f $benchmarkCsv,$script:WorkRoot,$BaselineRoot)
     } catch { [Windows.MessageBox]::Show($_.Exception.Message,'Cannot start QC') | Out-Null }
 })
 
@@ -183,6 +197,7 @@ $timer.Add_Tick({
     }
     if ($script:Worker.HasExited) {
         $BtnRun.IsEnabled=$true;$BtnDetect.IsEnabled=$true
+        @($ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$true }
         $published=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $asset
         if (Test-Path -LiteralPath $published) { $script:LastReport=$published }
         $BtnOpenLast.IsEnabled=[bool]$script:LastReport
