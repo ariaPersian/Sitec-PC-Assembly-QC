@@ -1,10 +1,20 @@
+function Test-SitecCancellationRequested {
+    [CmdletBinding()]
+    param([string]$CancelPath='')
+
+    if ([string]::IsNullOrWhiteSpace($CancelPath)) { $CancelPath=[string]$env:SITECQC_CANCEL_PATH }
+    if ([string]::IsNullOrWhiteSpace($CancelPath)) { return $false }
+    Test-Path -LiteralPath $CancelPath
+}
+
 function Invoke-SitecProcess {
     param(
         [Parameter(Mandatory)][string]$FilePath,
         [Parameter(Mandatory)][string]$Arguments,
         [Parameter(Mandatory)][string]$StdOutPath,
         [Parameter(Mandatory)][string]$StdErrPath,
-        [int]$TimeoutSeconds = 300
+        [int]$TimeoutSeconds = 300,
+        [string]$CancelPath=''
     )
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $FilePath
@@ -18,17 +28,39 @@ function Invoke-SitecProcess {
     [void]$p.Start()
     $out = $p.StandardOutput.ReadToEndAsync()
     $err = $p.StandardError.ReadToEndAsync()
-    if (-not $p.WaitForExit($TimeoutSeconds * 1000)) {
-        try { $p.Kill() } catch {}
-        throw "Process timed out: $FilePath $Arguments"
+    $deadline=[DateTime]::UtcNow.AddSeconds([math]::Max(1,$TimeoutSeconds))
+    $cancelled=$false
+    $timedOut=$false
+    while (-not $p.WaitForExit(250)) {
+        if (Test-SitecCancellationRequested -CancelPath $CancelPath) {
+            $cancelled=$true
+            try { & taskkill.exe /PID $p.Id /T /F 2>$null | Out-Null } catch { try { $p.Kill() } catch {} }
+            try { [void]$p.WaitForExit(5000) } catch {}
+            break
+        }
+        if ([DateTime]::UtcNow -ge $deadline) {
+            $timedOut=$true
+            try { & taskkill.exe /PID $p.Id /T /F 2>$null | Out-Null } catch { try { $p.Kill() } catch {} }
+            try { [void]$p.WaitForExit(5000) } catch {}
+            break
+        }
     }
-    $stdout = $out.Result
-    $stderr = $err.Result
+
+    $stdout=''
+    $stderr=''
+    try { $stdout=$out.Result } catch {}
+    try { $stderr=$err.Result } catch {}
     Set-Content -LiteralPath $StdOutPath -Value $stdout -Encoding UTF8
     Set-Content -LiteralPath $StdErrPath -Value $stderr -Encoding UTF8
+
+    if ($cancelled) {
+        throw [System.OperationCanceledException]::new("Benchmark cancelled by operator while running: $FilePath $Arguments")
+    }
+    if ($timedOut) {
+        throw "Process timed out: $FilePath $Arguments"
+    }
     [pscustomobject]@{ ExitCode=$p.ExitCode; StdOut=$stdout; StdErr=$stderr }
 }
-
 function Get-SitecWheaEvents {
     param([Parameter(Mandatory)][datetime]$Since)
     try {
