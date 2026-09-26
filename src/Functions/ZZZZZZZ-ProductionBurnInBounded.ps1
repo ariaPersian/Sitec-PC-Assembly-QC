@@ -35,6 +35,11 @@ function Invoke-SitecFullSystemBurnIn {
         return [pscustomobject]@{Status='SKIPPED';Required=$false;DurationSeconds=0;Sensors=@();Utilization=(Get-SitecLoadSummary @())}
     }
 
+    $cpuEnabled=Test-SitecBenchmarkComponent -Name 'CPU'
+    $memoryEnabled=Test-SitecBenchmarkComponent -Name 'Memory'
+    $diskEnabled=([bool]$cfg.DiskEnabled -and (Test-SitecBenchmarkComponent -Name 'Disk'))
+    $graphicsEnabled=([bool]$cfg.GraphicsEnabled -and (Test-SitecBenchmarkComponent -Name 'Graphics'))
+
     Initialize-SitecBurnInType
     $duration=[math]::Max(30,[int]$cfg.DurationSeconds)
     $cpuDuty=[int]$cfg.CpuDutyPercent
@@ -42,7 +47,7 @@ function Invoke-SitecFullSystemBurnIn {
     $sampleSeconds=[math]::Max([int]$Context.Settings.Sensors.SampleIntervalSeconds,2)
     $finalizeGrace=20
     if ($cfg.PSObject.Properties['FinalizeGraceSeconds']) { $finalizeGrace=[math]::Max(10,[int]$cfg.FinalizeGraceSeconds) }
-    $memoryTarget=Get-SitecBurnInMemoryTarget -Context $Context
+    $memoryTarget=if($memoryEnabled){Get-SitecBurnInMemoryTarget -Context $Context}else{[pscustomobject]@{AllocationTargetMB=0;TargetPercent=0}}
 
     $benchDir=Join-Path $RunPath 'benchmark\burnin'
     New-Item -ItemType Directory -Path $benchDir -Force | Out-Null
@@ -62,9 +67,11 @@ function Invoke-SitecFullSystemBurnIn {
     $gpuErr=Join-Path $benchDir 'graphics-burnin.err.txt'
 
     try {
-        Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'FullSystem' -Status 'START' -Message ("Starting {0}s bounded concurrent burn-in; finalization grace {1}s." -f $duration,$finalizeGrace) -Data $memoryTarget
+        $selected=@()
+        if($cpuEnabled){$selected+='CPU'};if($memoryEnabled){$selected+='RAM'};if($diskEnabled){$selected+='NVMe'};if($graphicsEnabled){$selected+='Graphics'}
+        Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'FullSystem' -Status 'START' -Message ("Starting {0}s bounded burn-in for [{1}]; finalization grace {2}s." -f $duration,($selected -join ', '),$finalizeGrace) -Data $memoryTarget
 
-        if ([bool]$cfg.DiskEnabled) {
+        if ($diskEnabled) {
             $diskExe=Join-Path $Context.ProjectRoot ([string]$Context.Settings.DiskSpd.ExeRelativePath)
             if (Test-Path -LiteralPath $diskExe) {
                 New-Item -ItemType Directory -Path $testDir -Force | Out-Null
@@ -79,21 +86,26 @@ function Invoke-SitecFullSystemBurnIn {
             }
         }
 
-        if ([bool]$cfg.GraphicsEnabled -and (Get-Command winsat.exe -ErrorAction SilentlyContinue)) {
+        if ($graphicsEnabled -and (Get-Command winsat.exe -ErrorAction SilentlyContinue)) {
             $normal=[int]$cfg.GraphicsNormalWindows;$glass=[int]$cfg.GraphicsGlassWindows
             $gpuArgs="dwm -normalw $normal -glassw $glass -time $duration -v -fullscreen"
             Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Graphics' -Status 'START' -Message 'Starting WinSAT DWM graphics workload.' -Data ([pscustomobject]@{Command='winsat.exe';Arguments=$gpuArgs})
             $gpuProcess=Start-SitecBurnInProcess -FilePath 'winsat.exe' -Arguments $gpuArgs -StdOutPath $gpuOut -StdErrPath $gpuErr
             $gpuStatus='RUNNING'
-        } elseif ([bool]$cfg.GraphicsEnabled) {
+        } elseif ($graphicsEnabled) {
             $gpuStatus='UNAVAILABLE';$gpuError='WinSAT unavailable.'
         }
 
         $started=Get-Date
-        Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'CPU' -Status 'START' -Message ("Starting CPU worker on {0} logical processors at {1}% duty." -f [Environment]::ProcessorCount,$cpuDuty)
-        Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status 'START' -Message ("Starting RAM write/verify: target {0} MB with {1} workers." -f $memoryTarget.AllocationTargetMB,$memoryWorkers)
-        $cpuTask=[SitecQcBurnInV2]::CpuAsync($duration,[Environment]::ProcessorCount,$cpuDuty)
-        $memoryTask=[SitecQcBurnInV2]::MemoryAsync($duration,[int]$memoryTarget.AllocationTargetMB,$memoryWorkers)
+        $cpuTask=$null;$memoryTask=$null
+        if($cpuEnabled){
+            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'CPU' -Status 'START' -Message ("Starting CPU worker on {0} logical processors at {1}% duty." -f [Environment]::ProcessorCount,$cpuDuty)
+            $cpuTask=[SitecQcBurnInV2]::CpuAsync($duration,[Environment]::ProcessorCount,$cpuDuty)
+        }
+        if($memoryEnabled){
+            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status 'START' -Message ("Starting RAM write/verify: target {0} MB with {1} workers." -f $memoryTarget.AllocationTargetMB,$memoryWorkers)
+            $memoryTask=[SitecQcBurnInV2]::MemoryAsync($duration,[int]$memoryTarget.AllocationTargetMB,$memoryWorkers)
+        }
 
         $loadSamples=@();$sensorSnapshots=@();$lastMinute=-1
         $targetEnd=$started.AddSeconds($duration)
@@ -123,30 +135,34 @@ function Invoke-SitecFullSystemBurnIn {
 
         $finalDeadline=(Get-Date).AddSeconds($finalizeGrace)
         while ((Get-Date) -lt $finalDeadline) {
-            $cpuDone=$cpuTask.IsCompleted;$memDone=$memoryTask.IsCompleted
+            $cpuDone=($null -eq $cpuTask -or $cpuTask.IsCompleted);$memDone=($null -eq $memoryTask -or $memoryTask.IsCompleted)
             $diskDone=(Test-SitecOwnedProcessExited -Process $diskProcess)
             $gpuDone=(Test-SitecOwnedProcessExited -Process $gpuProcess)
             if ($cpuDone -and $memDone -and $diskDone -and $gpuDone) { break }
             Start-Sleep -Milliseconds 250
         }
 
-        $cpu=$null;$memory=$null;$cpuOk=$false;$memoryOk=$false
-        if ($cpuTask.IsCompleted) {
+        $cpu=$null;$memory=$null;$cpuOk=(-not $cpuEnabled);$memoryOk=(-not $memoryEnabled)
+        if ($null -ne $cpuTask -and $cpuTask.IsCompleted) {
             try { $cpu=$cpuTask.GetAwaiter().GetResult();$cpuOk=$true } catch { $cpuError=$_.Exception.Message }
         }
-        if ($memoryTask.IsCompleted) {
+        if ($null -ne $memoryTask -and $memoryTask.IsCompleted) {
             try { $memory=$memoryTask.GetAwaiter().GetResult();$memoryOk=($memory.Errors -eq 0) } catch { $memoryError=$_.Exception.Message }
         }
 
-        if ($cpuOk) {
-            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'CPU' -Status 'PASS' -Message ("CPU completed: {0:N1}s, {1} threads, {2:N0} work units/s." -f $cpu.Seconds,$cpu.Threads,$cpu.WorkUnitsPerSecond) -Data $cpu
-        } else {
-            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'CPU' -Status 'TIMEOUT' -Level 'ERROR' -Message 'CPU worker did not finalize within the bounded window.'
+        if ($cpuEnabled) {
+            if ($cpuOk) {
+                Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'CPU' -Status 'PASS' -Message ("CPU completed: {0:N1}s, {1} threads, {2:N0} work units/s." -f $cpu.Seconds,$cpu.Threads,$cpu.WorkUnitsPerSecond) -Data $cpu
+            } else {
+                Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'CPU' -Status 'TIMEOUT' -Level 'ERROR' -Message 'CPU worker did not finalize within the bounded window.'
+            }
         }
-        if ($null -ne $memory) {
-            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status $(if($memoryOk){'PASS'}else{'FAIL'}) -Level $(if($memoryOk){'INFO'}else{'ERROR'}) -Message ("RAM completed: allocated {0} MB, verified {1:N0} MB, passes {2}, errors {3}." -f $memory.AllocatedMB,([double]$memory.BytesVerified/1MB),$memory.Passes,$memory.Errors) -Data $memory
-        } else {
-            Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status 'TIMEOUT' -Level 'ERROR' -Message 'RAM worker did not finalize within the bounded window.'
+        if ($memoryEnabled) {
+            if ($null -ne $memory) {
+                Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status $(if($memoryOk){'PASS'}else{'FAIL'}) -Level $(if($memoryOk){'INFO'}else{'ERROR'}) -Message ("RAM completed: allocated {0} MB, verified {1:N0} MB, passes {2}, errors {3}." -f $memory.AllocatedMB,([double]$memory.BytesVerified/1MB),$memory.Passes,$memory.Errors) -Data $memory
+            } else {
+                Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Memory' -Status 'TIMEOUT' -Level 'ERROR' -Message 'RAM worker did not finalize within the bounded window.'
+            }
         }
 
         if ($null -ne $diskProcess) {
@@ -179,20 +195,21 @@ function Invoke-SitecFullSystemBurnIn {
             Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Graphics' -Status $gpuStatus -Level $(if($gpuStatus -eq 'PASS'){'INFO'}else{'WARNING'}) -Message ("Graphics finalized. ExitCode={0}; evidence-complete={1}; forced-stop={2}; GPU peak={3}%." -f $gpuExit,$gpuEvidence,$forcedGpuStop,$utilization.GPU.Peak) -Data ([pscustomobject]@{ExitCode=$gpuExit;EvidenceComplete=$gpuEvidence;ForcedStop=$forcedGpuStop;Output=$gpuOut;Error=$gpuError})
         }
 
-        $requiredDisk=[bool]$cfg.DiskEnabled;$requiredGraphics=[bool]$cfg.GraphicsRequired
+        $requiredDisk=$diskEnabled;$requiredGraphics=($graphicsEnabled -and [bool]$cfg.GraphicsRequired)
         $pass=$cpuOk -and $memoryOk
         if ($requiredDisk -and $diskStatus -ne 'PASS') { $pass=$false }
         if ($requiredGraphics -and $gpuStatus -ne 'PASS') { $pass=$false }
         $finished=Get-Date
 
-        $cpuResult=if($cpu){[pscustomobject]@{Seconds=[math]::Round($cpu.Seconds,1);Threads=$cpu.Threads;DutyPercent=$cpu.DutyPercent;HashWorkMBps=[math]::Round($cpu.WorkUnitsPerSecond,2);WorkUnitsPerSecond=[math]::Round($cpu.WorkUnitsPerSecond,2);Iterations=$cpu.Iterations}}else{[pscustomobject]@{Seconds=0;Threads=[Environment]::ProcessorCount;DutyPercent=$cpuDuty;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}}
-        $memResult=if($memory){[pscustomobject]@{RequestedMB=$memory.RequestedMB;AllocatedMB=$memory.AllocatedMB;VerifiedMB=[math]::Round([double]$memory.BytesVerified/1MB,0);Errors=$memory.Errors;Seconds=[math]::Round($memory.Seconds,1);Passes=$memory.Passes;TargetSystemUsagePercent=$memoryTarget.TargetPercent}}else{[pscustomobject]@{RequestedMB=$memoryTarget.AllocationTargetMB;AllocatedMB=0;VerifiedMB=0;Errors=[long]::MaxValue;Seconds=0;Passes=0;TargetSystemUsagePercent=$memoryTarget.TargetPercent}}
+        $cpuResult=if($cpu){[pscustomobject]@{Enabled=$true;Status='PASS';Seconds=[math]::Round($cpu.Seconds,1);Threads=$cpu.Threads;DutyPercent=$cpu.DutyPercent;HashWorkMBps=[math]::Round($cpu.WorkUnitsPerSecond,2);WorkUnitsPerSecond=[math]::Round($cpu.WorkUnitsPerSecond,2);Iterations=$cpu.Iterations}}elseif($cpuEnabled){[pscustomobject]@{Enabled=$true;Status='FAIL';Seconds=0;Threads=[Environment]::ProcessorCount;DutyPercent=$cpuDuty;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}}else{[pscustomobject]@{Enabled=$false;Status='SKIPPED';Seconds=0;Threads=0;DutyPercent=0;HashWorkMBps=0;WorkUnitsPerSecond=0;Iterations=0}}
+        $memResult=if($memory){[pscustomobject]@{Enabled=$true;Status=$(if($memoryOk){'PASS'}else{'FAIL'});RequestedMB=$memory.RequestedMB;AllocatedMB=$memory.AllocatedMB;VerifiedMB=[math]::Round([double]$memory.BytesVerified/1MB,0);Errors=$memory.Errors;Seconds=[math]::Round($memory.Seconds,1);Passes=$memory.Passes;TargetSystemUsagePercent=$memoryTarget.TargetPercent}}elseif($memoryEnabled){[pscustomobject]@{Enabled=$true;Status='FAIL';RequestedMB=$memoryTarget.AllocationTargetMB;AllocatedMB=0;VerifiedMB=0;Errors=[long]::MaxValue;Seconds=0;Passes=0;TargetSystemUsagePercent=$memoryTarget.TargetPercent}}else{[pscustomobject]@{Enabled=$false;Status='SKIPPED';RequestedMB=0;AllocatedMB=0;VerifiedMB=0;Errors=0;Seconds=0;Passes=0;TargetSystemUsagePercent=$null}}
 
         $result=[pscustomobject]@{
             Status=if($pass){'PASS'}else{'FAIL'};Required=$true;TimedOut=$false;Error='';StartedAt=$started.ToString('o');FinishedAt=$finished.ToString('o');DurationSeconds=$duration;ActualSeconds=[math]::Round(($finished-$started).TotalSeconds,1)
+            Selection=@($selected)
             CpuStress=$cpuResult;MemoryVerification=$memResult
-            DiskStress=[pscustomobject]@{Enabled=[bool]$cfg.DiskEnabled;Status=$diskStatus;ProcessExitCode=$diskExit;ReadMBps=$(if($diskMetrics){$diskMetrics.ReadMBps}else{$null});ReadIOPS=$(if($diskMetrics){$diskMetrics.ReadIOPS}else{$null});AverageReadLatencyMs=$(if($diskMetrics){$diskMetrics.AverageReadLatencyMs}else{$null});BlockSizeKB=[int]$cfg.DiskBlockSizeKB;QueueDepth=[int]$cfg.DiskQueueDepth;Threads=[int]$cfg.DiskThreads;WritePercent=0;ForcedStop=$forcedDiskStop;Error=$diskError;XmlPath=$diskOut;StdErrPath=$diskErr}
-            GraphicsStress=[pscustomobject]@{Enabled=[bool]$cfg.GraphicsEnabled;Required=$requiredGraphics;Status=$gpuStatus;ProcessExitCode=$gpuExit;Engine='WinSAT DWM composition workload';ForcedStop=$forcedGpuStop;Error=$gpuError;OutputPath=$gpuOut;StdErrPath=$gpuErr}
+            DiskStress=[pscustomobject]@{Enabled=$diskEnabled;Status=$diskStatus;ProcessExitCode=$diskExit;ReadMBps=$(if($diskMetrics){$diskMetrics.ReadMBps}else{$null});ReadIOPS=$(if($diskMetrics){$diskMetrics.ReadIOPS}else{$null});AverageReadLatencyMs=$(if($diskMetrics){$diskMetrics.AverageReadLatencyMs}else{$null});BlockSizeKB=[int]$cfg.DiskBlockSizeKB;QueueDepth=[int]$cfg.DiskQueueDepth;Threads=[int]$cfg.DiskThreads;WritePercent=0;ForcedStop=$forcedDiskStop;Error=$diskError;XmlPath=$diskOut;StdErrPath=$diskErr}
+            GraphicsStress=[pscustomobject]@{Enabled=$graphicsEnabled;Required=$requiredGraphics;Status=$gpuStatus;ProcessExitCode=$gpuExit;Engine='WinSAT DWM composition workload';ForcedStop=$forcedGpuStop;Error=$gpuError;OutputPath=$gpuOut;StdErrPath=$gpuErr}
             Utilization=$utilization;Sensors=$sensorSummary;LoadSamples=@($loadSamples)
         }
         Write-SitecStepResult -RunPath $RunPath -Step '40-full-system-burnin' -Value $result | Out-Null
@@ -202,6 +219,6 @@ function Invoke-SitecFullSystemBurnIn {
     finally {
         Stop-SitecOwnedProcessTree -Process $diskProcess
         Stop-SitecOwnedProcessTree -Process $gpuProcess
-        Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue
+        if($diskEnabled){Remove-Item -LiteralPath $testDir -Recurse -Force -ErrorAction SilentlyContinue}
     }
 }
