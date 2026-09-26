@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, expected-BOM verification, benchmark/burn-in testing, WHEA error capture, hardware identity, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.13.3 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe RAM coverage / explicit PASS-FAIL-ERROR semantics**.
+Current production workflow: **v3.14.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / BOM-independent benchmark execution / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -109,10 +109,10 @@ Production QC combines:
 
 - Expected-BOM validation;
 - selected WinSAT CPU and/or memory qualification;
-- selected CPU stress across logical processors;
-- selected deterministic RAM write/verify testing;
-- **MaximumSafe RAM coverage:** the allocator consumes almost all currently free physical RAM while keeping a dynamic safety reserve of 5% of installed memory, clamped to 2-4 GB; `MemoryMaximumMB=0` means no fixed capacity cap. On a typical 64 GB system with about 12 GB already in use, approximately 49-50 GB is requested for deterministic write/verify and expected whole-system usage is about 95%;
-- selected Microsoft DiskSpd sequential and random storage qualification;
+- **MaximumSafe CPU:** 100% requested duty on every logical processor, with explicit 100% thread-coverage and sustained/peak utilization gates;
+- **MaximumSafe RAM:** deterministic write/verify consumes almost all currently free physical RAM while keeping a dynamic safety reserve of 5% of installed memory, clamped to 2-4 GB; on a typical 64 GB system with about 12 GB already in use, approximately 49-50 GB is requested;
+- **MaximumSafe NVMe:** Microsoft DiskSpd uses uncached/write-through I/O, high queue depth and a 4-16 GB temporary test file sized from available free space. Burn-in is intentionally read-only to saturate the controller/NAND without repeatedly overwriting the full SSD; short qualification tests still verify write throughput;
+- **MaximumSafe GPU:** an aggressive off-screen, fill-bound WinSAT DWM workload is driven at 1920x1080 with higher window counts, and measured GPU average/peak utilization becomes a required gate when Graphics is selected;
 - concurrent burn-in using only the selected CPU/RAM/NVMe/graphics workloads;
 - Windows WHEA hardware-error monitoring;
 - LibreHardwareMonitor sensor sampling when supported;
