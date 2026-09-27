@@ -60,19 +60,26 @@ try {
     $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
     if ($result.Status -ne 'FAIL') { throw 'Insufficient MaximumSafe allocation coverage did not fail QC.' }
 
-    # Regression: Intel/iGPU Windows counters may remain at 0% while the
-    # authoritative WinSAT Direct3D workload completes successfully. Counter
-    # telemetry must become an advisory warning, not a false hardware failure.
+    # Regression: Intel/iGPU Windows counters may remain at zero or report
+    # tiny idle-noise values (for example 0.1% / 0.2%) while the authoritative
+    # WinSAT Direct3D workload completes successfully. Such counter telemetry
+    # must become advisory/unavailable, not a false hardware failure.
+    $nearZero=Get-SitecGpuTelemetryAssessment -GraphicsEnabled $true -GraphicsStatus 'PASS' -GpuUtilization ([pscustomobject]@{Average=0.1;Peak=0.2;Samples=36})
+    if ($nearZero.Status -ne 'UNAVAILABLE') { throw "Near-zero Intel GPU counter noise was incorrectly considered valid: $($nearZero.Status)" }
+    if ($nearZero.Reason -notmatch 'near zero') { throw 'Near-zero GPU telemetry reason is not explicit.' }
+    $credible=Get-SitecGpuTelemetryAssessment -GraphicsEnabled $true -GraphicsStatus 'PASS' -GpuUtilization ([pscustomobject]@{Average=72;Peak=96;Samples=36})
+    if ($credible.Status -ne 'VALID') { throw 'Credible GPU utilization telemetry was incorrectly rejected.' }
+
     $benchmark.Selection=@('Graphics')
     $benchmark.BurnIn.Status='PASS'
     $benchmark.BurnIn.GraphicsStress=[pscustomobject]@{
         Enabled=$true;Required=$true;Status='PASS';CoverageMode='MaximumSafe'
-        WorkloadMode='Direct3D-ALU';TelemetryStatus='UNAVAILABLE'
-        TelemetryReason='Windows GPU utilization counters remained at 0% while the WinSAT graphics workload completed successfully.'
+        WorkloadMode='Direct3D-ALU';TelemetryStatus=$nearZero.Status
+        TelemetryReason=$nearZero.Reason
     }
-    $benchmark.BurnIn.Utilization.GPU=[pscustomobject]@{Average=0;Peak=0;Samples=40}
+    $benchmark.BurnIn.Utilization.GPU=[pscustomobject]@{Average=0.1;Peak=0.2;Samples=36}
     $result=Test-SitecBenchmarkResults -Benchmark $benchmark -Profile $profile
-    if ($result.Status -ne 'PASS') { throw 'Unavailable zero-only GPU telemetry incorrectly failed a successful graphics workload.' }
+    if ($result.Status -ne 'PASS') { throw 'Unavailable near-zero GPU telemetry incorrectly failed a successful graphics workload.' }
     $gpuTelemetry=@($result.Checks | Where-Object Name -eq 'GPU utilization telemetry')
     if ($gpuTelemetry.Count -ne 1 -or $gpuTelemetry[0].Status -ne 'WARNING') { throw 'Unavailable GPU telemetry was not recorded as one advisory warning.' }
     if (@($result.Checks | Where-Object Name -match '^GPU (average|peak) load').Count -ne 0) { throw 'Numeric GPU load thresholds were applied to unavailable counter telemetry.' }
