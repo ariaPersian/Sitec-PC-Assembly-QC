@@ -423,14 +423,19 @@ function Get-SitecLoadSnapshot {
         }
     } catch {}
 
-    # Some Intel/iGPU drivers expose the CIM GPU provider but return stale 0%
-    # values for off-screen WinSAT D3D workloads. Retry through the native
-    # performance-counter path whenever CIM is unavailable or reports zero.
-    if ($null -eq $gpu -or [double]$gpu -le 0) {
+    # Some Intel/iGPU drivers expose the CIM GPU provider but report only idle
+    # noise (for example 0.05-0.6%) for an off-screen WinSAT D3D workload.
+    # Retry through the native performance-counter path whenever CIM is missing
+    # or implausibly near zero, then retain whichever source reports more load.
+    $gpuCounterRetryFloorPercent=5.0
+    if ($null -eq $gpu -or [double]$gpu -lt $gpuCounterRetryFloorPercent) {
         try {
             $c=Get-Counter '\GPU Engine(*)\Utilization Percentage' -ErrorAction Stop
             $m=$c.CounterSamples | Measure-Object -Property CookedValue -Maximum
-            if ($null -ne $m.Maximum) { $gpu=[math]::Min(100,[double]$m.Maximum) }
+            if ($null -ne $m.Maximum) {
+                $nativeGpu=[math]::Min(100,[double]$m.Maximum)
+                if ($null -eq $gpu -or $nativeGpu -gt [double]$gpu) { $gpu=$nativeGpu }
+            }
         } catch {}
     }
 

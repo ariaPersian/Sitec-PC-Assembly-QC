@@ -26,6 +26,61 @@ function Stop-SitecOwnedProcessTree {
     }
 }
 
+function Get-SitecGpuTelemetryAssessment {
+    [CmdletBinding()]
+    param(
+        [bool]$GraphicsEnabled,
+        [string]$GraphicsStatus,
+        $GpuUtilization,
+        [double]$MinimumCrediblePeakPercent=5.0
+    )
+
+    if(-not $GraphicsEnabled){
+        return [pscustomobject]@{Status='NOT_SELECTED';Reason='';PeakPercent=$null;SampleCount=0;MinimumCrediblePeakPercent=$MinimumCrediblePeakPercent}
+    }
+
+    $samples=0
+    $peak=$null
+    if($GpuUtilization -and $GpuUtilization.PSObject.Properties['Samples']){$samples=[int]$GpuUtilization.Samples}
+    if($GpuUtilization -and $null -ne $GpuUtilization.Peak){$peak=[double]$GpuUtilization.Peak}
+
+    if($samples -le 0 -or $null -eq $peak){
+        return [pscustomobject]@{
+            Status='UNAVAILABLE'
+            Reason='Windows GPU utilization counters were unavailable during the graphics workload.'
+            PeakPercent=$peak
+            SampleCount=$samples
+            MinimumCrediblePeakPercent=$MinimumCrediblePeakPercent
+        }
+    }
+
+    # Near-zero values are usually idle-noise from Intel iGPU performance
+    # counters that do not observe an off-screen WinSAT Direct3D workload.
+    # Do not misclassify 0.1-0.6% idle noise as trustworthy workload telemetry.
+    if($peak -lt $MinimumCrediblePeakPercent){
+        $reason=if($GraphicsStatus -eq 'PASS'){
+            "Windows GPU utilization counters remained implausibly near zero (peak $([math]::Round($peak,2))%) while the WinSAT graphics workload completed successfully; utilization telemetry is unavailable, not a measured low-load failure."
+        } else {
+            "Windows GPU utilization counters remained implausibly near zero (peak $([math]::Round($peak,2))%) during the graphics workload."
+        }
+        return [pscustomobject]@{
+            Status='UNAVAILABLE'
+            Reason=$reason
+            PeakPercent=$peak
+            SampleCount=$samples
+            MinimumCrediblePeakPercent=$MinimumCrediblePeakPercent
+        }
+    }
+
+    [pscustomobject]@{
+        Status='VALID'
+        Reason=''
+        PeakPercent=$peak
+        SampleCount=$samples
+        MinimumCrediblePeakPercent=$MinimumCrediblePeakPercent
+    }
+}
+
 function Invoke-SitecFullSystemBurnIn {
     [CmdletBinding()]
     param([Parameter(Mandatory)]$Context,[Parameter(Mandatory)][string]$RunPath)
@@ -215,26 +270,14 @@ function Invoke-SitecFullSystemBurnIn {
         $sensorSummary=@(Get-SitecSensorSummary -Snapshots $sensorSnapshots)
         $utilization=Get-SitecLoadSummary -Samples $loadSamples
 
-        # GPU utilization counters are supporting telemetry, not the workload
-        # execution proof. On some Intel iGPU/driver combinations WinSAT D3D
-        # completes successfully while Windows reports only 0% GPU counters.
-        # Treat that condition as unavailable telemetry rather than a measured
-        # zero-load failure; a failed graphics workload still remains blocking.
-        $gpuTelemetryStatus=if($graphicsEnabled){'VALID'}else{'NOT_SELECTED'}
-        $gpuTelemetryReason=''
-        if($graphicsEnabled){
-            $gpuSamples=0
-            $gpuPeakValue=$null
-            if($utilization.GPU -and $utilization.GPU.PSObject.Properties['Samples']){$gpuSamples=[int]$utilization.GPU.Samples}
-            if($utilization.GPU -and $null -ne $utilization.GPU.Peak){$gpuPeakValue=[double]$utilization.GPU.Peak}
-            if($gpuSamples -le 0 -or $null -eq $gpuPeakValue){
-                $gpuTelemetryStatus='UNAVAILABLE'
-                $gpuTelemetryReason='Windows GPU utilization counters were unavailable during the graphics workload.'
-            } elseif($gpuPeakValue -le 0){
-                $gpuTelemetryStatus='UNAVAILABLE'
-                $gpuTelemetryReason=$(if($gpuStatus -eq 'PASS'){'Windows GPU utilization counters remained at 0% while the WinSAT graphics workload completed successfully; counter data is unavailable, not a measured 0% load.'}else{'Windows GPU utilization counters remained at 0% during the graphics workload.'})
-            }
-        }
+        # GPU utilization counters are supporting telemetry, not workload
+        # execution proof. Some Intel iGPU/driver combinations report only
+        # near-zero idle noise for off-screen WinSAT even while the workload
+        # completes successfully. Such telemetry is advisory/unavailable; the
+        # graphics workload result itself remains a blocking QC gate.
+        $gpuTelemetry=Get-SitecGpuTelemetryAssessment -GraphicsEnabled $graphicsEnabled -GraphicsStatus $gpuStatus -GpuUtilization $utilization.GPU
+        $gpuTelemetryStatus=[string]$gpuTelemetry.Status
+        $gpuTelemetryReason=[string]$gpuTelemetry.Reason
         if ($null -ne $gpuProcess) {
             Write-SitecDiagnosticEvent -RunPath $RunPath -Stage 'BurnIn' -Step 'Graphics' -Status $gpuStatus -Level $(if($gpuStatus -eq 'PASS'){'INFO'}else{'WARNING'}) -Message ("Graphics finalized. ExitCode={0}; evidence-complete={1}; forced-stop={2}; GPU peak={3}%; telemetry={4}." -f $gpuExit,$gpuEvidence,$forcedGpuStop,$utilization.GPU.Peak,$gpuTelemetryStatus) -Data ([pscustomobject]@{ExitCode=$gpuExit;EvidenceComplete=$gpuEvidence;ForcedStop=$forcedGpuStop;Output=$gpuOut;Error=$gpuError;TelemetryStatus=$gpuTelemetryStatus;TelemetryReason=$gpuTelemetryReason})
         }
@@ -257,7 +300,7 @@ function Invoke-SitecFullSystemBurnIn {
             Selection=@($selected)
             CpuStress=$cpuResult;MemoryVerification=$memResult
             DiskStress=[pscustomobject]@{Enabled=$diskEnabled;Status=$diskStatus;CoverageMode=$diskPlan.CoverageMode;ProcessExitCode=$diskExit;ReadMBps=$(if($diskMetrics){$diskMetrics.ReadMBps}else{$null});ReadIOPS=$(if($diskMetrics){$diskMetrics.ReadIOPS}else{$null});AverageReadLatencyMs=$(if($diskMetrics){$diskMetrics.AverageReadLatencyMs}else{$null});TargetSizeMB=$diskPlan.TargetSizeMB;FreeBeforeMB=$diskPlan.FreeBeforeMB;ReserveFreeMB=$diskPlan.ReserveFreeMB;BlockSizeKB=$diskPlan.BlockSizeKB;QueueDepth=$diskPlan.QueueDepth;Threads=$diskPlan.Threads;WritePercent=0;CacheMode=$diskPlan.CacheMode;ForcedStop=$forcedDiskStop;Error=$diskError;XmlPath=$diskOut;StdErrPath=$diskErr}
-            GraphicsStress=[pscustomobject]@{Enabled=$graphicsEnabled;Required=$requiredGraphics;Status=$gpuStatus;TelemetryStatus=$gpuTelemetryStatus;TelemetryReason=$gpuTelemetryReason;CoverageMode=$graphicsPlan.CoverageMode;WorkloadMode=$graphicsPlan.WorkloadMode;TargetAveragePercent=$graphicsPlan.TargetAveragePercent;TargetPeakPercent=$graphicsPlan.TargetPeakPercent;NormalWindows=$graphicsPlan.NormalWindows;GlassWindows=$graphicsPlan.GlassWindows;Resolution=("$($graphicsPlan.DesktopWidth)x$($graphicsPlan.DesktopHeight)");Offscreen=$graphicsPlan.Offscreen;NoLock=$graphicsPlan.NoLock;ProcessExitCode=$gpuExit;Engine=$gpuEngine;ForcedStop=$forcedGpuStop;Error=$gpuError;OutputPath=$gpuOut;StdErrPath=$gpuErr}
+            GraphicsStress=[pscustomobject]@{Enabled=$graphicsEnabled;Required=$requiredGraphics;Status=$gpuStatus;TelemetryStatus=$gpuTelemetryStatus;TelemetryReason=$gpuTelemetryReason;TelemetryMinimumCrediblePeakPercent=$gpuTelemetry.MinimumCrediblePeakPercent;CoverageMode=$graphicsPlan.CoverageMode;WorkloadMode=$graphicsPlan.WorkloadMode;TargetAveragePercent=$graphicsPlan.TargetAveragePercent;TargetPeakPercent=$graphicsPlan.TargetPeakPercent;NormalWindows=$graphicsPlan.NormalWindows;GlassWindows=$graphicsPlan.GlassWindows;Resolution=("$($graphicsPlan.DesktopWidth)x$($graphicsPlan.DesktopHeight)");Offscreen=$graphicsPlan.Offscreen;NoLock=$graphicsPlan.NoLock;ProcessExitCode=$gpuExit;Engine=$gpuEngine;ForcedStop=$forcedGpuStop;Error=$gpuError;OutputPath=$gpuOut;StdErrPath=$gpuErr}
             Utilization=$utilization;Sensors=$sensorSummary;LoadSamples=@($loadSamples)
         }
         Write-SitecStepResult -RunPath $RunPath -Step '40-full-system-burnin' -Value $result | Out-Null
