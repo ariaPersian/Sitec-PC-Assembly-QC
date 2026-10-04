@@ -129,6 +129,48 @@ function Test-SitecNetworkExportConnection {
     }
 }
 
+function Open-SitecNetworkExportExplorer {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SharePath,
+        [string]$Username='QCTransfer'
+    )
+
+    $server=Get-SitecNetworkExportServer -SharePath $SharePath
+    if ([string]::IsNullOrWhiteSpace($server)) {
+        throw 'Network share path is not a valid UNC path.'
+    }
+
+    # Opening Explorer must never wait on an SMB timeout on the UI thread.
+    # Require either an active SMB connection or a Windows Credential Manager
+    # entry for the collector; Explorer will then submit that credential silently.
+    $hasActiveConnection=$false
+    try {
+        $connection=Get-SmbConnection -ServerName $server -ErrorAction SilentlyContinue | Select-Object -First 1
+        $hasActiveConnection=($null -ne $connection)
+    } catch {}
+
+    $hasStoredCredential=$false
+    try {
+        $credentialList=(& cmdkey.exe /list 2>$null | Out-String)
+        $hasStoredCredential=($credentialList -match [regex]::Escape($server))
+    } catch {}
+
+    if (-not $hasActiveConnection -and -not $hasStoredCredential) {
+        $account=if([string]::IsNullOrWhiteSpace($Username)){'the configured QC account'}else{$Username}
+        throw "No Windows stored SMB credential was found for $server ($account). Provision the collector credential once in Windows Credential Manager and try again."
+    }
+
+    Start-Process -FilePath 'explorer.exe' -ArgumentList ('"{0}"' -f $SharePath) -ErrorAction Stop
+    [pscustomobject][ordered]@{
+        Success=$true
+        SharePath=$SharePath
+        Server=$server
+        Username=$Username
+        Message='Collector opened in Windows Explorer; Windows supplies the stored SMB credential automatically.'
+    }
+}
+
 function Invoke-SitecNetworkExport {
     [CmdletBinding()]
     param(

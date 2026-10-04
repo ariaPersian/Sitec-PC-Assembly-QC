@@ -66,6 +66,20 @@ try {
     if ($startUi.Contains('Test-SitecNetworkExportConnection -SharePath $TxtNetworkSharePath')) { throw 'Network Test button still performs the SMB test synchronously on the UI thread.' }
     if (-not $startUi.Contains('operator input remains available')) { throw 'Network test status does not make the non-blocking behavior explicit.' }
 
+    $xaml=Get-Content -LiteralPath (Join-Path $root 'ui\MainWindow.xaml') -Raw -Encoding UTF8
+    if (-not $xaml.Contains('x:Name="BtnOpenNetworkPath"')) { throw 'Network settings UI does not expose the Open collector button.' }
+    if (-not $xaml.Contains('Content="Open"')) { throw 'Collector action is not labelled Open.' }
+    if ($xaml.Contains('BtnCopyNetworkPath')) { throw 'Legacy Copy network button is still present.' }
+
+    if (-not $startUi.Contains("$BtnOpenNetworkPath=C 'BtnOpenNetworkPath'")) { throw 'GUI does not bind the Open collector button.' }
+    if (-not $startUi.Contains('Open-SitecNetworkExportExplorer -SharePath $path -Username $user')) { throw 'Open collector button does not use the SMB Explorer helper.' }
+    if ($startUi.Contains('[Windows.Clipboard]::SetText($path)')) { throw 'Legacy clipboard-copy behavior is still wired to the collector path.' }
+
+    $networkModule=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZZZZZZZZZZZZZZZZZZZZ-NetworkExport.ps1') -Raw -Encoding UTF8
+    if (-not $networkModule.Contains('function Open-SitecNetworkExportExplorer')) { throw 'Network export module does not provide the Explorer open helper.' }
+    if (-not $networkModule.Contains("Start-Process -FilePath 'explorer.exe'")) { throw 'Explorer helper does not launch Windows Explorer.' }
+    if (-not $networkModule.Contains('Windows stored SMB credential')) { throw 'Explorer helper does not document stored-credential authentication.' }
+
     Write-Host 'Network export and local-retention tests passed.' -ForegroundColor Green
 }
 finally {

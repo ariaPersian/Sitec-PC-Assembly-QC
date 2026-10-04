@@ -1,6 +1,6 @@
 # Asset-scoped QC data root
 
-SitecQC v3.9.1 derives the production QC scratch directory from the confirmed Asset ID.
+SitecQC v3.20.0 derives the production QC scratch directory from the confirmed Asset ID.
 
 The configured `DataRoot` value (`C:\SitecQC-Data` by default) is the **base name**, not the final per-run directory.
 
@@ -24,11 +24,10 @@ CASE-TEST -> C:\SitecQC-Data-CASE-TEST
 
 The folder is transient working data for the active QC run. SitecQC removes stale residue from the same Asset-specific path before starting a new run, then removes the working root after the run has been finalized and the durable evidence has been published.
 
-Authoritative local output remains:
+After a successful verified collector transfer, authoritative local output is intentionally limited to:
 
 ```text
-C:\BaselineQC\Output\<AssetId>-QC-Certificate.pdf
-C:\BaselineQC\Output\<AssetId>-Baseline.json
+C:\BaselineQC\Output\<PC-ID>-QC-Certificate.pdf
 ```
 
-The scratch path does not participate in `SITEC-HWID-V2` and is not a replacement for the company-held archive.
+The authoritative machine-readable record is retained on the collector as `\\10.50.50.20\QC-Results\<PC-ID>\<PC-ID>-Full.json`. If network transfer/verification fails, the local Full JSON is preserved as a fail-safe. The scratch path does not participate in `SITEC-HWID-V2` and is not a replacement for the company-held archive.
