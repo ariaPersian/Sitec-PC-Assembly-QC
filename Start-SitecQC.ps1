@@ -117,7 +117,7 @@ $networkSettings=Get-SitecNetworkExportSettings -Context $context -LauncherDir $
 $ChkNetworkExport.IsChecked=[bool]$networkSettings.Enabled
 $TxtNetworkSharePath.Text=[string]$networkSettings.SharePath
 $TxtNetworkUsername.Text=[string]$networkSettings.Username
-$PwdNetworkPassword.Password=''
+$PwdNetworkPassword.Password=[string]$networkSettings.Password
 $ChkNetworkAutoExport.IsChecked=[bool]$networkSettings.AutoExport
 $TxtNetworkRetryCount.Text=[string]$networkSettings.RetryCount
 $TxtNetworkExportStatus.Text='Startup network test pending...'
@@ -229,8 +229,7 @@ function Update-SitecNetworkCredentialFromUi {
     $sharePath=$TxtNetworkSharePath.Text.Trim()
     $username=$TxtNetworkUsername.Text.Trim()
     Set-SitecNetworkExportCredential -SharePath $sharePath -Username $username -Password $password | Out-Null
-    $PwdNetworkPassword.Clear()
-    Add-SitecUiNetworkLog ("Windows Credential Manager updated for {0} as {1}. Password was not written to SitecQC settings/logs." -f (Get-SitecNetworkExportServer -SharePath $sharePath),$username)
+    Add-SitecUiNetworkLog ("SMB credential prepared for {0} as {1}." -f (Get-SitecNetworkExportServer -SharePath $sharePath),$username)
     return $true
 }
 
@@ -248,6 +247,7 @@ function Start-SitecNetworkProbe {
 
         $sharePath=$TxtNetworkSharePath.Text.Trim()
         if ([string]::IsNullOrWhiteSpace($sharePath)) { throw 'Collector path is empty.' }
+        [void](Update-SitecNetworkCredentialFromUi -RequirePassword)
 
         $networkWorker=Join-Path $root 'tools\Test-NetworkExportWorker.ps1'
         if (-not (Test-Path -LiteralPath $networkWorker)) { throw 'Background network-test worker is missing.' }
@@ -301,13 +301,12 @@ $BtnSaveNetwork.Add_Click({
         if (-not [int]::TryParse($TxtNetworkRetryCount.Text,[ref]$retry)) { $retry=3 }
         $credentialUpdated=Update-SitecNetworkCredentialFromUi
         if (-not [string]::IsNullOrWhiteSpace($LauncherDir)) {
-            Save-SitecNetworkExportSettings -LauncherDir $LauncherDir -Enabled ([bool]$ChkNetworkExport.IsChecked) -SharePath $TxtNetworkSharePath.Text.Trim() -Username $TxtNetworkUsername.Text.Trim() -AutoExport ([bool]$ChkNetworkAutoExport.IsChecked) -RetryCount $retry -RetryDelaySeconds 2 | Out-Null
+            Save-SitecNetworkExportSettings -LauncherDir $LauncherDir -Enabled ([bool]$ChkNetworkExport.IsChecked) -SharePath $TxtNetworkSharePath.Text.Trim() -Username $TxtNetworkUsername.Text.Trim() -Password ([string]$PwdNetworkPassword.Password) -AutoExport ([bool]$ChkNetworkAutoExport.IsChecked) -RetryCount $retry -RetryDelaySeconds 2 | Out-Null
             $TxtNetworkExportStatus.Text=if($credentialUpdated){'Network settings and Windows SMB credential saved.'}else{'Network export settings saved; existing Windows SMB password kept.'}
         } else {
             $TxtNetworkExportStatus.Text=if($credentialUpdated){'Windows SMB credential updated. Source-mode settings remain session-only.'}else{'Source mode: settings are active for this session only.'}
         }
     } catch {
-        $PwdNetworkPassword.Clear()
         $TxtNetworkExportStatus.Text=('Save failed: '+$_.Exception.Message)
         Add-SitecUiNetworkLog ('Save network settings FAIL: '+$_.Exception.Message)
     }
@@ -318,7 +317,6 @@ $BtnTestNetwork.Add_Click({
         [void](Update-SitecNetworkCredentialFromUi)
         Start-SitecNetworkProbe -Reason 'manual'
     } catch {
-        $PwdNetworkPassword.Clear()
         $TxtNetworkExportStatus.Text=('Credential update failed: '+$_.Exception.Message)
         Add-SitecUiNetworkLog ('Credential update FAIL: '+$_.Exception.Message)
     }
