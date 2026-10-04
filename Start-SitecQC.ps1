@@ -61,6 +61,15 @@ $TxtMessage=C 'TxtMessage'
 $ProgressQc=C 'ProgressQc'
 $TxtHeaderStatus=C 'TxtHeaderStatus'
 $TxtFooter=C 'TxtFooter'
+$ChkNetworkExport=C 'ChkNetworkExport'
+$TxtNetworkSharePath=C 'TxtNetworkSharePath'
+$BtnCopyNetworkPath=C 'BtnCopyNetworkPath'
+$TxtNetworkUsername=C 'TxtNetworkUsername'
+$ChkNetworkAutoExport=C 'ChkNetworkAutoExport'
+$TxtNetworkRetryCount=C 'TxtNetworkRetryCount'
+$BtnTestNetwork=C 'BtnTestNetwork'
+$BtnSaveNetwork=C 'BtnSaveNetwork'
+$TxtNetworkExportStatus=C 'TxtNetworkExportStatus'
 
 $TxtProfileDisplay.Text=[string]$profile.ProfileId + ' v' + [string]$profile.ProfileVersion
 $profileTooltipLines=@(
@@ -86,7 +95,7 @@ $profileDisplayTip.Text=$profileTipText.Text
 $profileDisplayTip.TextWrapping='Wrap'
 $profileDisplayTip.MaxWidth=560
 $TxtProfileDisplay.ToolTip=$profileDisplayTip
-$TxtFooter.Text="Local baseline folder: $BaselineRoot  |  Profile comparison is optional and disabled by default. Connect the company USB only after QC is finished and SitecQC is closed."
+$TxtFooter.Text="Local baseline folder: $BaselineRoot  |  QC files stay local and can be exported automatically to the configured collector."
 
 $script:LastReport=$null
 $script:Worker=$null
@@ -95,6 +104,14 @@ $script:CurrentStatus=$null
 $script:Hardware=$null
 $script:WorkRoot=$null
 $script:CancelPath=$null
+
+$networkSettings=Get-SitecNetworkExportSettings -Context $context -LauncherDir $LauncherDir
+$ChkNetworkExport.IsChecked=[bool]$networkSettings.Enabled
+$TxtNetworkSharePath.Text=[string]$networkSettings.SharePath
+$TxtNetworkUsername.Text=[string]$networkSettings.Username
+$ChkNetworkAutoExport.IsChecked=[bool]$networkSettings.AutoExport
+$TxtNetworkRetryCount.Text=[string]$networkSettings.RetryCount
+$TxtNetworkExportStatus.Text='Not tested'
 
 function Get-SitecCaptureFlag([string]$Name,[bool]$Default) {
     if ($null -eq $profile.Capture) { return $Default }
@@ -181,7 +198,7 @@ $BtnRun.Add_Click({
         if ($script:Worker -and -not $script:Worker.HasExited) { return }
         if (-not $script:Hardware) { Refresh-SitecHardware }
         $usbStorage=@($script:Hardware.Storage | Where-Object { [string]$_.BusType -match '^(USB|SD|MMC)$' })
-        if ($usbStorage.Count -gt 0) { throw 'Disconnect all USB/removable storage before QC so it is not included in the hardware inventory. Connect the company flash drive only after SitecQC is closed.' }
+        if ($usbStorage.Count -gt 0) { throw 'Disconnect all USB/removable storage before QC so it is not included in the hardware inventory.' }
         $asset=$TxtAssetId.Text.Trim()
         if ($asset -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$') { throw 'Asset ID is invalid. Scan/enter a valid physical asset label.' }
         $required=@()
