@@ -4,3 +4,4 @@ tools/librehardwaremonitor/
 *.tmp
 *.log
 SitecQC-Data/
+SitecQC.local.json
