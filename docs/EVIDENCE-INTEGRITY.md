@@ -1,12 +1,12 @@
 # Evidence integrity model
 
-SitecQC v3.8 keeps separate concepts for **hardware identity**, **run-document integrity**, and **physical tamper evidence**. They must not be treated as the same identifier.
+SitecQC v3.20.0 keeps separate concepts for **hardware identity**, **run-document integrity**, and **physical tamper evidence**. They must not be treated as the same identifier.
 
 ## 1. Asset ID
 
 Asset ID answers: **which physical PC/case is this in the organization's process?**
 
-It is an administrative identifier used in the PDF, Baseline JSON and handover process. It is not part of `SITEC-HWID-V2`.
+It is an administrative identifier used in the PDF, Full JSON and handover process. It is not part of `SITEC-HWID-V2`.
 
 Changing only the Asset ID must not change the hardware identity hash.
 
@@ -87,25 +87,30 @@ Digital signing and hashing protect different properties:
 - hash -> detects a change relative to a known expected digest;
 - digital signature -> verifies that the exact signed bytes correspond to the public certificate/key used at creation time.
 
-For long-term organizational evidence, retain the original PDF/Baseline JSON and relevant hashes/signature metadata in the company-held archive/master records. Do not treat the customer-side Windows installation as the authoritative archive.
+For long-term organizational evidence, retain the original PDF/Full JSON and relevant hashes/signature metadata in the company-held archive/master records. Do not treat the customer-side Windows installation as the authoritative archive.
 
-## 6. Durable production evidence in v3.8
+## 6. Durable production evidence in v3.20.0
 
-The customer-facing/local durable output is intentionally compact:
+After a successful SHA-256-verified collector transfer, the customer-facing/local durable output is intentionally limited to:
 
 ```text
 C:\BaselineQC\Output\
-├── <AssetId>-QC-Certificate.pdf
-└── <AssetId>-Baseline.json
+└── <PC-ID>-QC-Certificate.pdf
 ```
 
-The Baseline JSON is the machine-readable transfer record and includes the identifiers needed for later fleet/archive processing, including the HWID and manifest hash.
+The company collector retains the authoritative pair:
 
-Detailed runtime files such as benchmark XML, verbose logs, HTML, manifest work files, signature work files and sensor traces are transient under `%TEMP%` and are cleaned after the run. Failed runs may retain one `LastFailure.zip` for troubleshooting.
+```text
+\\10.50.50.20\QC-Results\<PC-ID>\
+├── <PC-ID>-QC-Certificate.pdf
+└── <PC-ID>-Full.json
+```
+
+The Full JSON is the machine-readable archive record and contains the identifiers needed for later fleet/archive processing, including HWID and manifest-hash information. Detailed runtime files such as benchmark XML, verbose logs, HTML, manifest work files, signature work files and sensor traces are transient and are cleaned after the run. Failed runs may retain one `LastFailure.zip` for troubleshooting. If collector transfer or verification fails, SitecQC preserves the local Full JSON to prevent evidence loss.
 
 ## 7. Company-side archive
 
-After SitecQC is closed, connect the company archive USB and manually copy the PDF and Baseline JSON. The protected company archive/master Excel process is responsible for long-term evidence such as:
+Normal production does not use an archive flash drive. SitecQC transfers the PDF + Full JSON to the QC collector over the isolated LAN, and the protected company archive/master Excel process uses those network-held records for long-term evidence such as:
 
 - original Asset ID and seal;
 - component serials;
