@@ -93,7 +93,7 @@ try {
 
     $networkModule=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZZZZZZZZZZZZZZZZZZZZ-NetworkExport.ps1') -Raw -Encoding UTF8
     if (-not $networkModule.Contains('function Set-SitecNetworkExportCredential')) { throw 'Network export module does not provide credential update support.' }
-    if (-not $networkModule.Contains('System.Runtime.InteropServices.ComTypes.FILETIME LastWritten')) { throw 'Credential helper does not disambiguate FILETIME for Windows PowerShell 5.1 compilation.' }
+    if (-not $networkModule.Contains('cmdkey.exe')) { throw 'Collector login helper does not use the built-in Windows credential command.' }
 
     $settings=Get-Content -LiteralPath (Join-Path $root 'config\appsettings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if ([string]$settings.NetworkExport.Password -ne 'sitec') { throw 'Repository default collector password must be sitec.' }
