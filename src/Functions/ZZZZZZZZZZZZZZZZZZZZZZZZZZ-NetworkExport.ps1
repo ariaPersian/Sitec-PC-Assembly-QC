@@ -129,6 +129,35 @@ function Test-SitecNetworkExportConnection {
     }
 }
 
+function Open-SitecNetworkExportExplorer {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SharePath,
+        [string]$Username='QCTransfer'
+    )
+
+    $server=Get-SitecNetworkExportServer -SharePath $SharePath
+    if ([string]::IsNullOrWhiteSpace($server)) {
+        throw 'Network share path is not a valid UNC path.'
+    }
+
+    # SMB authentication is delegated to Windows Credential Manager.
+    # This avoids embedding a live password in the public repository/executable.
+    if (-not (Test-Path -LiteralPath $SharePath)) {
+        $account=if([string]::IsNullOrWhiteSpace($Username)){'the configured QC account'}else{$Username}
+        throw "The collector is not accessible with the Windows stored SMB credential for $account. Provision/update the Windows credential for $server and try again."
+    }
+
+    Start-Process -FilePath 'explorer.exe' -ArgumentList ('"{0}"' -f $SharePath) -ErrorAction Stop
+    [pscustomobject][ordered]@{
+        Success=$true
+        SharePath=$SharePath
+        Server=$server
+        Username=$Username
+        Message='Collector opened in Windows Explorer using the stored Windows SMB credential.'
+    }
+}
+
 function Invoke-SitecNetworkExport {
     [CmdletBinding()]
     param(
