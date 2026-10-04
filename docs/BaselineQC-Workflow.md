@@ -1,6 +1,6 @@
 # Production BaselineQC workflow
 
-This is the approved production/handover workflow for **SitecQC v3.21.0**.
+This is the approved production/handover workflow for **SitecQC v3.22.0**.
 
 ## Preparation on each PC
 
@@ -120,7 +120,7 @@ No archive flash drive is required. SitecQC transfers the two final files automa
 \\10.50.50.20\QC-Results\<PC-ID>\
 ```
 
-The operator may manage the collector credential directly in **Network export settings** using the editable Username and masked Password fields. A non-empty Password is written to Windows Credential Manager when **Save settings**, **Open**, or **Test connection** is used, then the Password field is cleared. With a valid stored credential, **Open** launches the collector root in Windows Explorer without a credential prompt.
+The operator may manage the collector login directly in **Network export settings** using the editable Username and masked Password fields. Defaults are `QCTransfer` / `sitec`. **Save settings** stores the values locally, while **Open** and **Test connection** use them automatically.
 
 The required machine-readable fields are imported from the network `Full.json` into the protected master Excel/archive. Cross-PC duplicate-serial detection, fleet-level auditing and later returned-PC comparison are company-side operations. No durable fleet database or serial index is intentionally stored under ProgramData on the delivered PC.
 
