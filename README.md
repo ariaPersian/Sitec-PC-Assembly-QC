@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, optional production-profile comparison, benchmark/burn-in testing, WHEA error capture, hardware identity/integrity validation, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.17.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / optional profile comparison (OFF by default) / independent identity-integrity validation / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
+Current production workflow: **v3.18.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / optional profile comparison (OFF by default) / independent identity-integrity validation / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -29,10 +29,10 @@ The application:
 6. runs performance qualification and full-system burn-in;
 7. captures WHEA and sensor evidence;
 8. calculates `SITEC-HWID-V2`;
-9. generates a two-page PDF, compact Baseline JSON, and complete Full JSON;
-10. removes transient benchmark/runtime data after publishing the final evidence.
+9. generates a two-page QC Certificate PDF and complete Full JSON (the compact Baseline JSON is only a temporary compatibility artifact and is not retained for handover);
+10. transfers the QC Certificate PDF + Full JSON to `\\10.50.50.20\QC-Results\<PC-ID>\`, verifies both with SHA-256, and then removes local machine-readable JSON so only the QC Certificate PDF remains on the tested PC.
 
-When network export is enabled, the QC Certificate PDF and Full JSON are copied automatically to the configured collector while the local copies remain on the PC. The network export result is independent of the QC PASS/FAIL classification.
+If the network transfer or hash verification fails, the local Full JSON is deliberately preserved to prevent evidence loss. Network-transfer status is independent of the QC PASS/FAIL classification.
 
 ## Asset-scoped SitecQC data root
 
@@ -132,20 +132,26 @@ Runtime benchmark XML/log/HTML files are temporary and are removed after complet
 
 ## Output
 
-The durable customer-PC output is intentionally small:
+After a successful verified network transfer, the tested PC intentionally retains only the customer-facing certificate:
 
 ```text
 C:\BaselineQC\
 ├── SitecQC.exe
 └── Output\
-    ├── <AssetId>-QC-Certificate.pdf
-    ├── <AssetId>-Baseline.json
-    └── <AssetId>-Full.json
+    └── <PC-ID>-QC-Certificate.pdf
 ```
 
-The PDF is the human-readable handover document. `Baseline.json` is the compact machine-readable record aligned with the fleet/Excel workflow. `Full.json` preserves the complete QC run record, including raw detected hardware, physical identifiers, `IdentityValidation`, `ProfileComparisonEnabled`, `ProfileComparison`, compatibility BOM fields, benchmark/burn-in results, WHEA data, validation results, structured `ErrorSummary`/`ErrorDetails`, duplicate-serial results, PassMark metadata when present, hardware/manifest hashes, and signature-verification metadata when available.
+The collector receives exactly the two final QC deliverables:
 
-The Baseline JSON includes an `ExcelInventory` projection whose field names align with the master hardware-inventory workbook. Assembly checklist fields that require a real operator action remain intentionally separate from automatically detected hardware/QC values.
+```text
+\\10.50.50.20\QC-Results\<PC-ID>\
+├── <PC-ID>-QC-Certificate.pdf
+└── <PC-ID>-Full.json
+```
+
+The PDF is the human-readable handover document. `Full.json` is the authoritative machine-readable QC record and preserves raw detected hardware, physical identifiers, `IdentityValidation`, `ProfileComparisonEnabled`, `ProfileComparison`, compatibility BOM fields, benchmark/burn-in results, WHEA data, validation results, structured `ErrorSummary`/`ErrorDetails`, duplicate-serial results, PassMark metadata when present, hardware/manifest hashes, signature-verification metadata, and the Excel-compatible inventory projection.
+
+A temporary Baseline JSON may be produced internally for compatibility during finalization, but it is not a final handover/archive deliverable. If the network transfer cannot be completed and SHA-256 verified, SitecQC keeps the local Full JSON as a fail-safe instead of deleting the only machine-readable evidence.
 
 The PDF is exactly two A4 pages:
 
@@ -158,7 +164,7 @@ For the customer-facing UI and PDF only:
 
 - RAM manufacturer is displayed as **Crucial** regardless of the SMBIOS-reported manufacturer/model string;
 - the PDF RAM table does **not** display Part Number, Serial, or Speed columns;
-- the raw detected manufacturer, part number, serial and speed remain unchanged in `Baseline.json`/`Full.json` and in internal validation evidence.
+- the raw detected manufacturer, part number, serial and speed remain unchanged in `Full.json` and in internal validation evidence.
 
 ## Hardware Identity v2
 
@@ -207,9 +213,9 @@ The intended handover sequence is:
 3. show the powered-on PC and detected hardware to the customer;
 4. print/review the certificate;
 5. apply the registered tamper seal in front of the customer;
-6. let SitecQC export the QC Certificate PDF + Full JSON to the configured network collector;
-7. verify the network export status in the application;
-8. transfer/import the machine-readable values into the protected master Excel/archive.
+6. let SitecQC transfer the QC Certificate PDF + Full JSON to `\\10.50.50.20\QC-Results\<PC-ID>\`;
+7. verify the successful SHA-256-checked network transfer in the application and confirm only the QC Certificate PDF remains locally;
+8. transfer/import the machine-readable values from the network Full JSON into the protected master Excel/archive.
 
 Cross-PC duplicate-serial detection and long-term baseline comparison belong to that company-side archive, not to a persistent database on the delivered PC.
 
@@ -231,6 +237,6 @@ GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests,
 
 ## QC network export
 
-The production UI includes a dedicated **Network export settings** panel. The default collector path is `\\10.50.50.20\QC-Results`, the account label is `QCTransfer`, and automatic export is enabled. Use **Copy** to place the UNC path on the clipboard, **Test connection** to verify TCP/445 plus write/delete permission, and **Save settings** to create the machine-local `SitecQC.local.json` override next to the executable.
+The production UI includes a dedicated **Network export settings** panel. The default collector path is `\\10.50.50.20\QC-Results`, the account label is `QCTransfer`, and automatic export is enabled. Each run is stored under `<PC-ID>`, where PC-ID is the confirmed Asset ID. SitecQC uploads both final files to temporary names, verifies SHA-256 on the collector, promotes them to final names, and only then removes the local Full JSON. Use **Copy** to place the UNC path on the clipboard, **Test connection** to verify TCP/445 plus write/delete permission, and **Save settings** to create the machine-local `SitecQC.local.json` override next to the executable.
 
 SMB authentication is deliberately supplied by Windows rather than embedding a password in this public repository. See [docs/network-export.md](docs/network-export.md).

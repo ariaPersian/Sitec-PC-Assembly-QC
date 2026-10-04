@@ -95,7 +95,7 @@ $profileDisplayTip.Text=$profileTipText.Text
 $profileDisplayTip.TextWrapping='Wrap'
 $profileDisplayTip.MaxWidth=560
 $TxtProfileDisplay.ToolTip=$profileDisplayTip
-$TxtFooter.Text="Local baseline folder: $BaselineRoot  |  QC files stay local and can be exported automatically to the configured collector."
+$TxtFooter.Text="Local baseline folder: $BaselineRoot  |  After verified network transfer, only the QC Certificate PDF is retained locally."
 
 $script:LastReport=$null
 $script:Worker=$null
@@ -412,12 +412,18 @@ $timer.Add_Tick({
                 if (-not [int]::TryParse($TxtNetworkRetryCount.Text,[ref]$retry)) { $retry=3 }
                 $certificate=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $asset
                 $export=Invoke-SitecNetworkExport -AssetId $asset -SharePath $TxtNetworkSharePath.Text.Trim() -Files @($fullJson,$certificate) -RetryCount $retry -RetryDelaySeconds 2
-                if ($export.Success) {
-                    $TxtNetworkExportStatus.Text=("Export complete: {0}" -f $export.Destination)
-                    $TxtMessage.Text += (" Network export: SUCCESS -> {0}" -f $export.Destination)
+                if ($export.Success -and $export.Verified) {
+                    $retention=Remove-SitecLocalMachineReadableOutputAfterTransfer -BaselineRoot $BaselineRoot -AssetId $asset
+                    if ($retention.Success) {
+                        $TxtNetworkExportStatus.Text=("Transfer complete and verified: {0}" -f $export.Destination)
+                        $TxtMessage.Text += (" Network transfer: SUCCESS -> {0}. Full JSON + QC Certificate were SHA-256 verified on the collector. Local retention: QC Certificate PDF only." -f $export.Destination)
+                    } else {
+                        $TxtNetworkExportStatus.Text=("Transfer verified; local cleanup warning: {0}" -f $retention.Message)
+                        $TxtMessage.Text += (" Network transfer succeeded, but local cleanup was incomplete: {0}" -f $retention.Message)
+                    }
                 } else {
-                    $TxtNetworkExportStatus.Text=("Export failed: {0}" -f $export.Message)
-                    $TxtMessage.Text += ' Network export failed; local PDF and Full JSON were preserved.'
+                    $TxtNetworkExportStatus.Text=("Transfer failed: {0}" -f $export.Message)
+                    $TxtMessage.Text += ' Network transfer failed; local QC Certificate and machine-readable JSON evidence were preserved to prevent data loss.'
                 }
             }
         } catch {

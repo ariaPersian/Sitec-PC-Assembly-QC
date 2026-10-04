@@ -139,9 +139,21 @@ function Invoke-SitecNetworkExport {
         [int]$RetryDelaySeconds=2
     )
 
-    $existing=@($Files | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path -LiteralPath $_) } | Select-Object -Unique)
-    if ($existing.Count -eq 0) {
-        return [pscustomobject][ordered]@{Success=$false;Destination='';Files=@();Attempts=0;Message='No published QC files were available for network export.'}
+    $requested=@($Files | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+    $missing=@($requested | Where-Object { -not (Test-Path -LiteralPath $_) })
+    if ($requested.Count -eq 0) {
+        return [pscustomobject][ordered]@{Success=$false;Verified=$false;Destination='';Files=@();Hashes=@();Attempts=0;Message='No QC files were supplied for network export.'}
+    }
+    if ($missing.Count -gt 0) {
+        return [pscustomobject][ordered]@{
+            Success=$false
+            Verified=$false
+            Destination=''
+            Files=@()
+            Hashes=@()
+            Attempts=0
+            Message=('Required QC export file(s) are missing: '+(@($missing | ForEach-Object { [IO.Path]::GetFileName($_) }) -join ', '))
+        }
     }
 
     $RetryCount=[math]::Max(1,[math]::Min(10,$RetryCount))
@@ -149,32 +161,103 @@ function Invoke-SitecNetworkExport {
     $last=''
 
     for ($attempt=1;$attempt -le $RetryCount;$attempt++) {
+        $partials=@()
         try {
             if (-not (Test-Path -LiteralPath $SharePath)) { throw 'The SMB share is not accessible with the Windows credentials stored on this PC.' }
             New-Item -ItemType Directory -Path $destination -Force -ErrorAction Stop | Out-Null
-            foreach ($file in $existing) {
-                $target=Join-Path $destination ([IO.Path]::GetFileName($file))
-                Copy-Item -LiteralPath $file -Destination $target -Force -ErrorAction Stop
+
+            $hashes=@()
+            foreach ($file in $requested) {
+                $name=[IO.Path]::GetFileName($file)
+                $target=Join-Path $destination $name
+                $partial=$target+'.uploading-'+[guid]::NewGuid().ToString('N')
+                $partials += $partial
+
+                Copy-Item -LiteralPath $file -Destination $partial -Force -ErrorAction Stop
+                $sourceHash=(Get-FileHash -LiteralPath $file -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                $remoteHash=(Get-FileHash -LiteralPath $partial -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                if ($sourceHash -ne $remoteHash) {
+                    throw "SHA-256 verification failed for $name."
+                }
+
+                Move-Item -LiteralPath $partial -Destination $target -Force -ErrorAction Stop
+                $partials=@($partials | Where-Object { $_ -ne $partial })
+                $finalHash=(Get-FileHash -LiteralPath $target -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+                if ($sourceHash -ne $finalHash) {
+                    throw "Final SHA-256 verification failed for $name."
+                }
+
+                $hashes += [pscustomobject][ordered]@{
+                    File=$name
+                    Sha256=$sourceHash
+                }
             }
 
             return [pscustomobject][ordered]@{
                 Success=$true
+                Verified=$true
                 Destination=$destination
-                Files=@($existing | ForEach-Object { [IO.Path]::GetFileName($_) })
+                Files=@($requested | ForEach-Object { [IO.Path]::GetFileName($_) })
+                Hashes=$hashes
                 Attempts=$attempt
-                Message=('Exported {0} QC file(s).' -f $existing.Count)
+                Message=('Transferred and SHA-256 verified {0} QC file(s).' -f $requested.Count)
             }
         } catch {
             $last=$_.Exception.Message
+            foreach ($partial in @($partials)) {
+                Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+            }
             if ($attempt -lt $RetryCount -and $RetryDelaySeconds -gt 0) { Start-Sleep -Seconds $RetryDelaySeconds }
         }
     }
 
     [pscustomobject][ordered]@{
         Success=$false
+        Verified=$false
         Destination=$destination
-        Files=@($existing | ForEach-Object { [IO.Path]::GetFileName($_) })
+        Files=@($requested | ForEach-Object { [IO.Path]::GetFileName($_) })
+        Hashes=@()
         Attempts=$RetryCount
         Message=$last
+    }
+}
+
+function Remove-SitecLocalMachineReadableOutputAfterTransfer {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BaselineRoot,
+        [Parameter(Mandatory)][string]$AssetId
+    )
+
+    $certificate=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $AssetId
+    $fullJson=Get-SitecPublishedFullJsonPath -BaselineRoot $BaselineRoot -AssetId $AssetId
+    $baseline=Get-SitecPublishedBaselinePath -BaselineRoot $BaselineRoot -AssetId $AssetId
+
+    if (-not (Test-Path -LiteralPath $certificate)) {
+        return [pscustomobject][ordered]@{
+            Success=$false
+            KeptCertificate=$false
+            Deleted=@()
+            Message='Local QC certificate is missing, so machine-readable local evidence was not removed.'
+        }
+    }
+
+    $deleted=@()
+    $errors=@()
+    foreach ($path in @($fullJson,$baseline)) {
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        try {
+            Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+            $deleted += [IO.Path]::GetFileName($path)
+        } catch {
+            $errors += ("{0}: {1}" -f [IO.Path]::GetFileName($path),$_.Exception.Message)
+        }
+    }
+
+    [pscustomobject][ordered]@{
+        Success=($errors.Count -eq 0)
+        KeptCertificate=(Test-Path -LiteralPath $certificate)
+        Deleted=$deleted
+        Message=$(if($errors.Count -eq 0){'Local machine-readable QC output removed; QC certificate retained.'}else{($errors -join '; ')})
     }
 }
