@@ -1,6 +1,6 @@
 # Production BaselineQC workflow
 
-This is the approved production/handover workflow for **SitecQC v3.10.0**.
+This is the approved production/handover workflow for **SitecQC v3.20.0**.
 
 ## Preparation on each PC
 
@@ -11,7 +11,7 @@ C:\BaselineQC\
 └── SitecQC.exe
 ```
 
-Do not connect the company archive USB during hardware discovery, benchmark or burn-in. Removable storage is intentionally excluded from the production run.
+Do not connect USB/removable storage during hardware discovery, benchmark or burn-in. Removable storage is intentionally excluded from the production run. Final QC evidence is transferred over the isolated QC LAN instead of by flash drive.
 
 A USB barcode/2D scanner may remain connected because it is used as an input/HID device rather than storage.
 
@@ -71,27 +71,35 @@ WHEA + sensor validation
         ↓
 SITEC-HWID-V2
         ↓
-Two-page PDF + Baseline JSON + Full JSON
+Two-page PDF + Full JSON
         ↓
-Cleanup of transient files
+Verified SMB transfer to \\10.50.50.20\QC-Results\<PC-ID>\
+        ↓
+Cleanup: keep only QC-Certificate.pdf locally
 ```
 
-## Successful local output
+## Successful output and retention
 
-After PASS:
+After both final files are transferred and SHA-256 verified on the collector, the tested PC retains only:
 
 ```text
 C:\BaselineQC\
 ├── SitecQC.exe
 └── Output\
-    ├── <AssetId>-QC-Certificate.pdf
-    ├── <AssetId>-Baseline.json
-    └── <AssetId>-Full.json
+    └── <PC-ID>-QC-Certificate.pdf
 ```
 
-The PDF is the customer/internal paper certificate. `Baseline.json` is the compact record used by the company archive/master Excel process and includes the `ExcelInventory` projection. `Full.json` is the complete machine-readable QC record and preserves the detailed hardware inventory, physical identifiers, BOM checks, benchmark/burn-in results, WHEA data, validation results and evidence hashes/signature metadata that are available for the run.
+The collector contains:
 
-A failed run may additionally keep one `<AssetId>-LastFailure.zip` under `Output` for troubleshooting.
+```text
+\\10.50.50.20\QC-Results\<PC-ID>\
+├── <PC-ID>-QC-Certificate.pdf
+└── <PC-ID>-Full.json
+```
+
+The PDF is the customer/internal certificate. `Full.json` is the authoritative machine-readable QC record and contains the Excel-compatible inventory projection together with detailed hardware inventory, physical identifiers, BOM checks, benchmark/burn-in results, WHEA data, validation results and evidence hashes/signature metadata.
+
+If network transfer or verification fails, SitecQC preserves the local Full JSON to prevent evidence loss. A failed run may additionally keep one `<PC-ID>-LastFailure.zip` under `Output` for troubleshooting.
 
 ## Customer acceptance and sealing
 
@@ -106,14 +114,15 @@ The printed PDF may be placed inside the case/package according to the handover 
 
 ## Company archive transfer
 
-After SitecQC is completely closed:
+No archive flash drive is required. SitecQC transfers the two final files automatically to:
 
-1. connect the company archive USB;
-2. manually copy `<AssetId>-QC-Certificate.pdf`, `<AssetId>-Baseline.json` and `<AssetId>-Full.json`;
-3. transfer/import the required machine-readable fields into the protected master Excel/archive;
-4. retain those company-side records as the authoritative long-term baseline.
+```text
+\\10.50.50.20\QC-Results\<PC-ID>\
+```
 
-Cross-PC duplicate-serial detection, fleet-level auditing and later returned-PC comparison are company-side operations. No durable fleet database or serial index is intentionally stored under ProgramData on the delivered PC.
+The operator may press **Open** in **Network export settings** to open the collector root in Windows Explorer. Windows uses the pre-provisioned `QCTransfer` credential automatically, so the operator is not prompted for a username/password.
+
+The required machine-readable fields are imported from the network `Full.json` into the protected master Excel/archive. Cross-PC duplicate-serial detection, fleet-level auditing and later returned-PC comparison are company-side operations. No durable fleet database or serial index is intentionally stored under ProgramData on the delivered PC.
 
 ## HWID rule
 
