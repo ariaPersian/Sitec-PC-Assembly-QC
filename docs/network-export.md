@@ -24,7 +24,7 @@ Each file is uploaded to a temporary name, SHA-256 verified on the collector, an
 
 If the network transfer or verification fails, SitecQC does **not** delete the local machine-readable evidence. The local Full JSON is preserved to prevent data loss, and the network-transfer failure remains separate from the QC PASS/FAIL result.
 
-The **Open** action first confirms that the share is reachable with the stored Windows SMB credential and then opens `\\10.50.50.20\QC-Results\` in Windows Explorer. Authentication is silent from the operator's perspective because Windows submits the stored `QCTransfer` credential automatically. If the credential is missing or invalid, SitecQC reports the problem instead of opening a Windows credential prompt.
+The **Open** action checks for an active SMB session or a stored Windows Credential Manager entry for `10.50.50.20` and then launches `\\10.50.50.20\QC-Results\` in Windows Explorer. It does not perform a blocking SMB path probe on the UI thread. Authentication is silent from the operator's perspective because Windows submits the stored `QCTransfer` credential automatically. If no stored credential/session is available, SitecQC reports the problem instead of opening a Windows credential prompt.
 
 The **Test connection** action verifies TCP/445, SMB access, and actual write/delete permission on the share.
 
