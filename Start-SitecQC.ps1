@@ -193,6 +193,42 @@ $TxtPsuSerial.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtCpu
 $TxtCpuAtpo.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtSeal1.Focus() | Out-Null; $_.Handled=$true } })
 $TxtSeal1.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $BtnRun.Focus() | Out-Null; $_.Handled=$true } })
 
+$BtnCopyNetworkPath.Add_Click({
+    try {
+        $path=$TxtNetworkSharePath.Text.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($path)) {
+            [Windows.Clipboard]::SetText($path)
+            $TxtNetworkExportStatus.Text='Collector path copied to clipboard.'
+        }
+    } catch { $TxtNetworkExportStatus.Text=$_.Exception.Message }
+})
+
+$BtnSaveNetwork.Add_Click({
+    try {
+        $retry=3
+        if (-not [int]::TryParse($TxtNetworkRetryCount.Text,[ref]$retry)) { $retry=3 }
+        if (-not [string]::IsNullOrWhiteSpace($LauncherDir)) {
+            Save-SitecNetworkExportSettings -LauncherDir $LauncherDir -Enabled ([bool]$ChkNetworkExport.IsChecked) -SharePath $TxtNetworkSharePath.Text.Trim() -Username $TxtNetworkUsername.Text.Trim() -AutoExport ([bool]$ChkNetworkAutoExport.IsChecked) -RetryCount $retry -RetryDelaySeconds 2 | Out-Null
+            $TxtNetworkExportStatus.Text='Network export settings saved.'
+        } else {
+            $TxtNetworkExportStatus.Text='Source mode: settings are active for this session only.'
+        }
+    } catch { $TxtNetworkExportStatus.Text=('Save failed: '+$_.Exception.Message) }
+})
+
+$BtnTestNetwork.Add_Click({
+    try {
+        $TxtNetworkExportStatus.Text='Testing collector access and write permission...'
+        $window.Dispatcher.Invoke([action]{},[Windows.Threading.DispatcherPriority]::Background)
+        $test=Test-SitecNetworkExportConnection -SharePath $TxtNetworkSharePath.Text.Trim()
+        if ($test.Success) {
+            $TxtNetworkExportStatus.Text='Connected: collector write test passed.'
+        } else {
+            $TxtNetworkExportStatus.Text=('Connection failed: '+$test.Message)
+        }
+    } catch { $TxtNetworkExportStatus.Text=('Connection failed: '+$_.Exception.Message) }
+})
+
 $BtnRun.Add_Click({
     try {
         if ($script:Worker -and -not $script:Worker.HasExited) { return }
