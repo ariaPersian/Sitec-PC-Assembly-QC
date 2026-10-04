@@ -1,6 +1,6 @@
 # SITEC Hardware Identity v2
 
-`SITEC-HWID-V2` is the production hardware-only fingerprint used by SitecQC v3.21.0.
+`SITEC-HWID-V2` is the production hardware-only fingerprint used by SitecQC v3.22.0.
 
 Its purpose is simple:
 
