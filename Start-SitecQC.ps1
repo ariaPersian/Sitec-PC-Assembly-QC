@@ -331,7 +331,7 @@ $BtnRun.Add_Click({
         $usbStorage=@($script:Hardware.Storage | Where-Object { [string]$_.BusType -match '^(USB|SD|MMC)$' })
         if ($usbStorage.Count -gt 0) { throw 'Disconnect all USB/removable storage before QC so it is not included in the hardware inventory.' }
         $asset=$TxtAssetId.Text.Trim()
-        if ($asset -eq 'CASE-' -or $asset -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{1,63}
+        if ($asset -eq 'CASE-' -or $asset -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$') { throw 'Asset ID is incomplete or invalid. Enter the unique identifier after CASE- (or replace it with a complete valid Asset ID).' }
         $required=@()
         if (Get-SitecCaptureFlag 'RequirePsuSerial' $true) { $required += [pscustomobject]@{Name='PSU serial';Value=$TxtPsuSerial.Text} }
         if (Get-SitecCaptureFlag 'RequireCpuAtpo' $true) { $required += [pscustomobject]@{Name='CPU ATPO';Value=$TxtCpuAtpo.Text} }
