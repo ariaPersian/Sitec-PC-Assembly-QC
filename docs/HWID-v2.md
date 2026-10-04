@@ -1,6 +1,6 @@
 # SITEC Hardware Identity v2
 
-`SITEC-HWID-V2` is the production hardware-only fingerprint used by SitecQC v3.8.0.
+`SITEC-HWID-V2` is the production hardware-only fingerprint used by SitecQC v3.20.0.
 
 Its purpose is simple:
 
@@ -37,7 +37,7 @@ These values do not participate in `SITEC-HWID-V2`:
 - operator/user account;
 - USB/removable devices.
 
-Asset ID and tamper seal remain important evidence fields in the PDF/Baseline JSON, but they are intentionally separate from the hardware fingerprint.
+Asset ID and tamper seal remain important evidence fields in the PDF/Full JSON, but they are intentionally separate from the hardware fingerprint.
 
 ## Canonicalization
 
@@ -82,8 +82,8 @@ Component model names are not enough for anti-tamper comparison. Replacing a `Sa
 
 The same principle applies to RAM, motherboard, CPU Full ATPO and PSU serials.
 
-## Relationship to the PDF and Baseline JSON
+## Relationship to the PDF and Full JSON
 
-The two-page PDF displays the Hardware Identity SHA-256 for human comparison. `<AssetId>-Baseline.json` keeps the machine-readable serialized component fields plus the HWID so the company-side archive/master Excel process can perform later comparison and fleet-level checks.
+The two-page PDF displays the Hardware Identity SHA-256 for human comparison. `<PC-ID>-Full.json` keeps the machine-readable serialized component fields plus the HWID so the company-side archive/master Excel process can perform later comparison and fleet-level checks. After a verified transfer, the Full JSON is retained on the collector at `\\10.50.50.20\QC-Results\<PC-ID>\` while the tested PC keeps only the QC Certificate PDF.
 
 See `EVIDENCE-INTEGRITY.md` for the distinction between Hardware Identity SHA-256 and Manifest SHA-256.
