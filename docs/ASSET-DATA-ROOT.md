@@ -1,8 +1,8 @@
 # Asset-scoped QC data root
 
-SitecQC v3.20.0 derives the production QC scratch directory from the confirmed Asset ID.
+SitecQC v3.21.0 derives the production QC scratch directory from the confirmed Asset ID.
 
-The configured `DataRoot` value (`C:\SitecQC-Data` by default) is the **base name**, not the final per-run directory.
+The production Asset ID field is prefilled with `CASE-`; the operator enters/scans the unique suffix before QC starts. The configured `DataRoot` value (`C:\SitecQC-Data` by default) is the **base name**, not the final per-run directory.
 
 ## Mapping rule
 
