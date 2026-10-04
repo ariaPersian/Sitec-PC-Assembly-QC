@@ -110,6 +110,7 @@ $script:NetworkTestSharePath=''
 $script:NetworkTestReason=''
 $script:NetworkTestStartedAt=$null
 $script:InitialNetworkProbeStarted=$false
+$script:NetworkLogLines=@()
 
 $networkSettings=Get-SitecNetworkExportSettings -Context $context -LauncherDir $LauncherDir
 $ChkNetworkExport.IsChecked=[bool]$networkSettings.Enabled
@@ -196,8 +197,21 @@ function Format-SitecUiDuration([double]$Seconds) {
 function Add-SitecUiNetworkLog {
     param([Parameter(Mandatory)][string]$Message)
     $line=('[{0}] [NETWORK] {1}' -f (Get-Date).ToString('HH:mm:ss'),$Message)
-    if ([string]::IsNullOrWhiteSpace($TxtLog.Text)) { $TxtLog.Text=$line }
-    else { $TxtLog.AppendText([Environment]::NewLine+$line) }
+    $script:NetworkLogLines += $line
+
+    # Network diagnostics are kept separately in memory so the benchmark
+    # worker-log refresh cannot erase the startup/manual connectivity result.
+    if ($script:Worker -and -not $script:Worker.HasExited) {
+        $workerText=''
+        if ($script:CurrentStatus -and $script:CurrentStatus.PSObject.Properties['RunPath']) {
+            $workerLog=Join-Path ([string]$script:CurrentStatus.RunPath) 'worker.log'
+            if (Test-Path -LiteralPath $workerLog) { $workerText=Get-Content -LiteralPath $workerLog -Raw -Encoding UTF8 }
+        }
+        $networkText=@($script:NetworkLogLines) -join [Environment]::NewLine
+        $TxtLog.Text=if([string]::IsNullOrWhiteSpace($workerText)){$networkText}else{$networkText+[Environment]::NewLine+$workerText}
+    } else {
+        $TxtLog.Text=(@($script:NetworkLogLines) -join [Environment]::NewLine)
+    }
     $TxtLog.ScrollToEnd()
 }
 
@@ -316,7 +330,7 @@ $BtnRun.Add_Click({
         $BtnCancel.Visibility='Visible';$BtnCancel.IsEnabled=$true
         @($ChkProfileComparison,$ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$false }
         $profileMode=if($ChkProfileComparison.IsChecked){"ON ($($profile.ProfileId))"}else{'OFF'}
-        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtProgressPercent.Text='1%';$TxtElapsed.Text='Elapsed: 00:00';$TxtRemaining.Text='Remaining: --:--';$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched for [{0}]. Profile comparison: {1}. Scratch data: {2} | Final output: {3}\Output" -f $benchmarkCsv,$profileMode,$script:WorkRoot,$BaselineRoot)
+        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Text=(@($script:NetworkLogLines) -join [Environment]::NewLine);$ProgressQc.Value=1;$TxtProgressPercent.Text='1%';$TxtElapsed.Text='Elapsed: 00:00';$TxtRemaining.Text='Remaining: --:--';$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched for [{0}]. Profile comparison: {1}. Scratch data: {2} | Final output: {3}\Output" -f $benchmarkCsv,$profileMode,$script:WorkRoot,$BaselineRoot)
     } catch { [Windows.MessageBox]::Show($_.Exception.Message,'Cannot start QC') | Out-Null }
 })
 
@@ -368,7 +382,12 @@ $timer.Add_Tick({
                         $TxtRemaining.Text='Remaining: calculating...'
                     }
                     $log=Join-Path $s.RunPath 'worker.log'
-                    if (Test-Path $log) { $TxtLog.Text=Get-Content $log -Raw -Encoding UTF8;$TxtLog.ScrollToEnd() }
+                    if (Test-Path $log) {
+                        $workerText=Get-Content $log -Raw -Encoding UTF8
+                        $networkText=@($script:NetworkLogLines) -join [Environment]::NewLine
+                        $TxtLog.Text=if([string]::IsNullOrWhiteSpace($networkText)){$workerText}else{$networkText+[Environment]::NewLine+$workerText}
+                        $TxtLog.ScrollToEnd()
+                    }
                 } catch {}
             }
         }
