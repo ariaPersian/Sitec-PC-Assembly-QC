@@ -13,6 +13,7 @@ function Get-SitecNetworkExportSettings {
     $enabled=$true
     $sharePath='\\10.50.50.20\QC-Results'
     $username='QCTransfer'
+    $password='sitec'
     $autoExport=$true
     $retryCount=3
     $retryDelaySeconds=2
@@ -21,6 +22,7 @@ function Get-SitecNetworkExportSettings {
         if ($defaults.PSObject.Properties['Enabled']) { $enabled=[bool]$defaults.Enabled }
         if ($defaults.PSObject.Properties['SharePath'] -and -not [string]::IsNullOrWhiteSpace([string]$defaults.SharePath)) { $sharePath=[string]$defaults.SharePath }
         if ($defaults.PSObject.Properties['Username'] -and -not [string]::IsNullOrWhiteSpace([string]$defaults.Username)) { $username=[string]$defaults.Username }
+        if ($defaults.PSObject.Properties['Password']) { $password=[string]$defaults.Password }
         if ($defaults.PSObject.Properties['AutoExport']) { $autoExport=[bool]$defaults.AutoExport }
         if ($defaults.PSObject.Properties['RetryCount']) { $retryCount=[int]$defaults.RetryCount }
         if ($defaults.PSObject.Properties['RetryDelaySeconds']) { $retryDelaySeconds=[int]$defaults.RetryDelaySeconds }
@@ -37,6 +39,7 @@ function Get-SitecNetworkExportSettings {
                     if ($local.PSObject.Properties['Enabled']) { $enabled=[bool]$local.Enabled }
                     if ($local.PSObject.Properties['SharePath'] -and -not [string]::IsNullOrWhiteSpace([string]$local.SharePath)) { $sharePath=[string]$local.SharePath }
                     if ($local.PSObject.Properties['Username'] -and -not [string]::IsNullOrWhiteSpace([string]$local.Username)) { $username=[string]$local.Username }
+                    if ($local.PSObject.Properties['Password']) { $password=[string]$local.Password }
                     if ($local.PSObject.Properties['AutoExport']) { $autoExport=[bool]$local.AutoExport }
                     if ($local.PSObject.Properties['RetryCount']) { $retryCount=[int]$local.RetryCount }
                     if ($local.PSObject.Properties['RetryDelaySeconds']) { $retryDelaySeconds=[int]$local.RetryDelaySeconds }
@@ -54,6 +57,7 @@ function Get-SitecNetworkExportSettings {
         Enabled=$enabled
         SharePath=$sharePath
         Username=$username
+        Password=$password
         AutoExport=$autoExport
         RetryCount=$retryCount
         RetryDelaySeconds=$retryDelaySeconds
@@ -68,6 +72,7 @@ function Save-SitecNetworkExportSettings {
         [Parameter(Mandatory)][bool]$Enabled,
         [Parameter(Mandatory)][string]$SharePath,
         [Parameter(Mandatory)][string]$Username,
+        [string]$Password='sitec',
         [Parameter(Mandatory)][bool]$AutoExport,
         [int]$RetryCount=3,
         [int]$RetryDelaySeconds=2
@@ -86,6 +91,7 @@ function Save-SitecNetworkExportSettings {
             Enabled=$Enabled
             SharePath=$SharePath.Trim()
             Username=$Username.Trim()
+            Password=$Password
             AutoExport=$AutoExport
             RetryCount=$RetryCount
             RetryDelaySeconds=$RetryDelaySeconds
@@ -128,7 +134,7 @@ public static class SitecCredentialNative
         public UInt32 Type;
         [MarshalAs(UnmanagedType.LPWStr)] public string TargetName;
         [MarshalAs(UnmanagedType.LPWStr)] public string Comment;
-        public FILETIME LastWritten;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
         public UInt32 CredentialBlobSize;
         public IntPtr CredentialBlob;
         public UInt32 Persist;
