@@ -1,6 +1,6 @@
 # Evidence integrity model
 
-SitecQC v3.21.0 keeps separate concepts for **hardware identity**, **run-document integrity**, and **physical tamper evidence**. They must not be treated as the same identifier.
+SitecQC v3.22.0 keeps separate concepts for **hardware identity**, **run-document integrity**, and **physical tamper evidence**. They must not be treated as the same identifier.
 
 ## 1. Asset ID
 
@@ -89,7 +89,7 @@ Digital signing and hashing protect different properties:
 
 For long-term organizational evidence, retain the original PDF/Full JSON and relevant hashes/signature metadata in the company-held archive/master records. Do not treat the customer-side Windows installation as the authoritative archive.
 
-## 6. Durable production evidence in v3.21.0
+## 6. Durable production evidence in v3.22.0
 
 After a successful SHA-256-verified collector transfer, the customer-facing/local durable output is intentionally limited to:
 

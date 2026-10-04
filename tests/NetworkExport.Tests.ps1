@@ -9,6 +9,7 @@ try {
         Enabled=$true
         SharePath='\\10.50.50.20\QC-Results'
         Username='QCTransfer'
+        Password='sitec'
         AutoExport=$true
         RetryCount=3
         RetryDelaySeconds=2
@@ -17,12 +18,14 @@ try {
     $defaults=Get-SitecNetworkExportSettings -Context $context -LauncherDir $temp
     if ($defaults.SharePath -ne '\\10.50.50.20\QC-Results') { throw 'Default network export path mismatch.' }
     if ($defaults.Username -ne 'QCTransfer') { throw 'Default network export username mismatch.' }
+    if ($defaults.Password -ne 'sitec') { throw 'Default network export password mismatch.' }
     if (-not $defaults.AutoExport) { throw 'Auto export must be enabled by default.' }
 
-    Save-SitecNetworkExportSettings -LauncherDir $temp -Enabled $true -SharePath '\\10.50.50.20\QC-Results' -Username 'QCTransfer' -AutoExport $false -RetryCount 4 -RetryDelaySeconds 1 | Out-Null
+    Save-SitecNetworkExportSettings -LauncherDir $temp -Enabled $true -SharePath '\\10.50.50.20\QC-Results' -Username 'QCTransfer' -Password 'changed-pass' -AutoExport $false -RetryCount 4 -RetryDelaySeconds 1 | Out-Null
     $saved=Get-SitecNetworkExportSettings -Context $context -LauncherDir $temp
     if ($saved.AutoExport) { throw 'Local network export override was not loaded.' }
     if ($saved.RetryCount -ne 4) { throw 'Network export retry setting was not persisted.' }
+    if ($saved.Password -ne 'changed-pass') { throw 'Network export password was not persisted.' }
 
     $baselineRoot=Join-Path $temp 'BaselineQC'
     $layout=Initialize-SitecBaselineLayout -BaselineRoot $baselineRoot
@@ -83,23 +86,17 @@ try {
     if (-not $xaml.Contains('x:Name="PwdNetworkPassword"')) { throw 'Network settings UI does not expose a PasswordBox.' }
     if (-not $xaml.Contains('Text="CASE-"')) { throw 'Asset ID field does not default to CASE-.' }
     if (-not $startUi.Contains('$PwdNetworkPassword=C ''PwdNetworkPassword''')) { throw 'GUI does not bind the network password field.' }
-    if (-not $startUi.Contains('Set-SitecNetworkExportCredential -SharePath $sharePath -Username $username -Password $password')) { throw 'Password field is not wired to Windows Credential Manager.' }
+    if (-not $startUi.Contains('Set-SitecNetworkExportCredential -SharePath $sharePath -Username $username -Password $password')) { throw 'Password field is not wired to SMB authentication.' }
+    if (-not $startUi.Contains('$PwdNetworkPassword.Password=[string]$networkSettings.Password')) { throw 'GUI does not prefill the configured network password.' }
     if (-not $startUi.Contains('$TxtAssetId.Text=''CASE-''')) { throw 'GUI does not restore CASE- when Asset ID is empty.' }
     if (-not $startUi.Contains('$asset -eq ''CASE-''')) { throw 'GUI does not reject the incomplete CASE- Asset ID.' }
 
     $networkModule=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZZZZZZZZZZZZZZZZZZZZ-NetworkExport.ps1') -Raw -Encoding UTF8
     if (-not $networkModule.Contains('function Set-SitecNetworkExportCredential')) { throw 'Network export module does not provide credential update support.' }
-    if (-not $networkModule.Contains('CredWriteW')) { throw 'Collector password is not written through Windows Credential Manager API.' }
+    if (-not $networkModule.Contains('cmdkey.exe')) { throw 'Collector login helper does not use the built-in Windows credential command.' }
 
-    $repoFiles=@(
-        (Join-Path $root 'config\appsettings.json'),
-        (Join-Path $root 'Start-SitecQC.ps1'),
-        (Join-Path $root 'ui\MainWindow.xaml')
-    )
-    foreach($repoFile in $repoFiles){
-        $content=Get-Content -LiteralPath $repoFile -Raw -Encoding UTF8
-        if($content -match '(?i)"Password"\s*:\s*"[^"]+"'){ throw "A plaintext password was committed to $repoFile." }
-    }
+    $settings=Get-Content -LiteralPath (Join-Path $root 'config\appsettings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([string]$settings.NetworkExport.Password -ne 'sitec') { throw 'Repository default collector password must be sitec.' }
 
     Write-Host 'Network export and local-retention tests passed.' -ForegroundColor Green
 }

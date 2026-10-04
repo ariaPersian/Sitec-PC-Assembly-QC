@@ -13,6 +13,7 @@ function Get-SitecNetworkExportSettings {
     $enabled=$true
     $sharePath='\\10.50.50.20\QC-Results'
     $username='QCTransfer'
+    $password='sitec'
     $autoExport=$true
     $retryCount=3
     $retryDelaySeconds=2
@@ -21,6 +22,7 @@ function Get-SitecNetworkExportSettings {
         if ($defaults.PSObject.Properties['Enabled']) { $enabled=[bool]$defaults.Enabled }
         if ($defaults.PSObject.Properties['SharePath'] -and -not [string]::IsNullOrWhiteSpace([string]$defaults.SharePath)) { $sharePath=[string]$defaults.SharePath }
         if ($defaults.PSObject.Properties['Username'] -and -not [string]::IsNullOrWhiteSpace([string]$defaults.Username)) { $username=[string]$defaults.Username }
+        if ($defaults.PSObject.Properties['Password']) { $password=[string]$defaults.Password }
         if ($defaults.PSObject.Properties['AutoExport']) { $autoExport=[bool]$defaults.AutoExport }
         if ($defaults.PSObject.Properties['RetryCount']) { $retryCount=[int]$defaults.RetryCount }
         if ($defaults.PSObject.Properties['RetryDelaySeconds']) { $retryDelaySeconds=[int]$defaults.RetryDelaySeconds }
@@ -37,6 +39,7 @@ function Get-SitecNetworkExportSettings {
                     if ($local.PSObject.Properties['Enabled']) { $enabled=[bool]$local.Enabled }
                     if ($local.PSObject.Properties['SharePath'] -and -not [string]::IsNullOrWhiteSpace([string]$local.SharePath)) { $sharePath=[string]$local.SharePath }
                     if ($local.PSObject.Properties['Username'] -and -not [string]::IsNullOrWhiteSpace([string]$local.Username)) { $username=[string]$local.Username }
+                    if ($local.PSObject.Properties['Password']) { $password=[string]$local.Password }
                     if ($local.PSObject.Properties['AutoExport']) { $autoExport=[bool]$local.AutoExport }
                     if ($local.PSObject.Properties['RetryCount']) { $retryCount=[int]$local.RetryCount }
                     if ($local.PSObject.Properties['RetryDelaySeconds']) { $retryDelaySeconds=[int]$local.RetryDelaySeconds }
@@ -54,6 +57,7 @@ function Get-SitecNetworkExportSettings {
         Enabled=$enabled
         SharePath=$sharePath
         Username=$username
+        Password=$password
         AutoExport=$autoExport
         RetryCount=$retryCount
         RetryDelaySeconds=$retryDelaySeconds
@@ -68,6 +72,7 @@ function Save-SitecNetworkExportSettings {
         [Parameter(Mandatory)][bool]$Enabled,
         [Parameter(Mandatory)][string]$SharePath,
         [Parameter(Mandatory)][string]$Username,
+        [string]$Password='sitec',
         [Parameter(Mandatory)][bool]$AutoExport,
         [int]$RetryCount=3,
         [int]$RetryDelaySeconds=2
@@ -86,6 +91,7 @@ function Save-SitecNetworkExportSettings {
             Enabled=$Enabled
             SharePath=$SharePath.Trim()
             Username=$Username.Trim()
+            Password=$Password
             AutoExport=$AutoExport
             RetryCount=$RetryCount
             RetryDelaySeconds=$RetryDelaySeconds
@@ -111,68 +117,17 @@ function Set-SitecNetworkExportCredential {
     $server=Get-SitecNetworkExportServer -SharePath $SharePath
     if ([string]::IsNullOrWhiteSpace($server)) { throw 'Network share path is not a valid UNC path.' }
     if ([string]::IsNullOrWhiteSpace($Username)) { throw 'Network export username is required.' }
-    if ([string]::IsNullOrWhiteSpace($Password)) { throw 'Network export password is empty.' }
 
-    if ($null -eq ('SitecCredentialNative' -as [type])) {
-        Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
-
-public static class SitecCredentialNative
-{
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct CREDENTIAL
-    {
-        public UInt32 Flags;
-        public UInt32 Type;
-        [MarshalAs(UnmanagedType.LPWStr)] public string TargetName;
-        [MarshalAs(UnmanagedType.LPWStr)] public string Comment;
-        public FILETIME LastWritten;
-        public UInt32 CredentialBlobSize;
-        public IntPtr CredentialBlob;
-        public UInt32 Persist;
-        public UInt32 AttributeCount;
-        public IntPtr Attributes;
-        [MarshalAs(UnmanagedType.LPWStr)] public string TargetAlias;
-        [MarshalAs(UnmanagedType.LPWStr)] public string UserName;
-    }
-
-    [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)]
-    public static extern bool CredWrite(ref CREDENTIAL credential, UInt32 flags);
-}
-'@
-    }
-
-    $blob=[Runtime.InteropServices.Marshal]::StringToCoTaskMemUni($Password)
-    try {
-        $credential=New-Object SitecCredentialNative+CREDENTIAL
-        $credential.Flags=0
-        $credential.Type=2 # CRED_TYPE_DOMAIN_PASSWORD / Windows credential
-        $credential.TargetName=$server
-        $credential.Comment='SITEC QC collector credential'
-        $credential.CredentialBlobSize=[Text.Encoding]::Unicode.GetByteCount($Password)
-        $credential.CredentialBlob=$blob
-        $credential.Persist=2 # CRED_PERSIST_LOCAL_MACHINE
-        $credential.AttributeCount=0
-        $credential.Attributes=[IntPtr]::Zero
-        $credential.TargetAlias=$null
-        $credential.UserName=$Username.Trim()
-
-        $ok=[SitecCredentialNative]::CredWrite([ref]$credential,0)
-        if (-not $ok) {
-            $errorCode=[Runtime.InteropServices.Marshal]::GetLastWin32Error()
-            throw "Windows Credential Manager rejected the QC collector credential (Win32 error $errorCode)."
-        }
-    } finally {
-        if ($blob -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeCoTaskMemUnicode($blob) }
+    & cmdkey.exe ("/add:{0}" -f $server) ("/user:{0}" -f $Username.Trim()) ("/pass:{0}" -f $Password) | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to prepare SMB login for $server (cmdkey exit code $LASTEXITCODE)."
     }
 
     [pscustomobject][ordered]@{
         Success=$true
         Server=$server
         Username=$Username.Trim()
-        Message='QC collector credential was updated in Windows Credential Manager.'
+        Message='SMB login prepared for the collector.'
     }
 }
 
