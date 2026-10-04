@@ -12,33 +12,22 @@ At application startup, the collector test begins automatically after the WPF wi
 Default collector settings:
 
 - Share: `\\10.50.50.20\QC-Results`
-- Account label: `QCTransfer`
+- Username: `QCTransfer`
+- Password: `sitec`
 - Automatic export: enabled
 - Retry count: 3
 
-The UI provides editable **Username** and masked **Password** fields. Entering a Password and pressing **Save settings**, **Open**, or **Test connection** updates the Windows Credential Manager entry for the collector before continuing. Leaving Password blank preserves the existing stored credential. The password is never written to `SitecQC.local.json`, application logs, the executable configuration, or this repository.
-
-Machine-local path/user/auto-export settings are stored in `SitecQC.local.json` next to `SitecQC.exe`.
+The UI provides editable **Username** and masked **Password** fields. The default password is `sitec`. **Save settings** stores the current network values, including Password, in the machine-local `SitecQC.local.json` next to `SitecQC.exe`. **Open** and **Test connection** use the Username/Password shown in the UI.
 
 Each file is uploaded to a temporary name, SHA-256 verified on the collector, and only then promoted to its final filename. After both files are verified successfully, SitecQC removes the local Full JSON (and any temporary Baseline JSON) and keeps only `<PC-ID>-QC-Certificate.pdf` on the tested PC.
 
 If the network transfer or verification fails, SitecQC does **not** delete the local machine-readable evidence. The local Full JSON is preserved to prevent data loss, and the network-transfer failure remains separate from the QC PASS/FAIL result.
 
-The **Open** action checks for an active SMB session or a stored Windows Credential Manager entry for `10.50.50.20` and then launches `\\10.50.50.20\QC-Results\` in Windows Explorer. It does not perform a blocking SMB path probe on the UI thread. Authentication is silent from the operator's perspective because Windows submits the stored `QCTransfer` credential automatically. If no stored credential/session is available, SitecQC reports the problem instead of opening a Windows credential prompt.
+The **Open** action prepares SMB access for `10.50.50.20` from the Username/Password shown in SitecQC and then launches `\\10.50.50.20\QC-Results\` in Windows Explorer. The operator does not need to type the credentials again in Explorer.
 
 The **Test connection** action verifies TCP/445, SMB access, and actual write/delete permission on the share.
 
 
-## Credential provisioning
+## Credential settings
 
-The credential can be provisioned directly from SitecQC: enter `QCTransfer` (or another configured account) in **Username**, type the password in the masked **Password** field, then press **Save settings**. SitecQC writes the credential through the Windows Credential Manager API and immediately clears the Password field.
-
-Manual Windows provisioning remains available when needed:
-
-1. Open **Credential Manager** → **Windows Credentials**.
-2. Choose **Add a Windows credential**.
-3. Internet or network address: `10.50.50.20`.
-4. User name: `QCTransfer`.
-5. Enter the production QCTransfer password used by the collector laptop.
-
-Do not commit that password to this repository or to `appsettings.json`. The in-app Password field is intentionally transient. For cloned systems, either provision the credential in the golden-image/post-deploy process or enter it once through SitecQC on each production Windows profile; validate it on at least one deployed clone before scaling out.
+The temporary QC network defaults are intentionally simple: `QCTransfer` / `sitec`. They are editable in the application and may be saved locally. No additional password-hardening workflow is required for this isolated temporary collector path.
