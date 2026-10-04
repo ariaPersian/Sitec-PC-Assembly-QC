@@ -285,7 +285,7 @@ $BtnOpenNetworkPath.Add_Click({
     try {
         $path=$TxtNetworkSharePath.Text.Trim()
         $user=$TxtNetworkUsername.Text.Trim()
-        [void](Update-SitecNetworkCredentialFromUi)
+        [void](Update-SitecNetworkCredentialFromUi -RequirePassword)
         $opened=Open-SitecNetworkExportExplorer -SharePath $path -Username $user
         $TxtNetworkExportStatus.Text=("Opened collector: {0}" -f $opened.SharePath)
         Add-SitecUiNetworkLog ("Explorer opened for {0} using the Windows stored SMB credential for {1}." -f $opened.SharePath,$user)
@@ -299,12 +299,12 @@ $BtnSaveNetwork.Add_Click({
     try {
         $retry=3
         if (-not [int]::TryParse($TxtNetworkRetryCount.Text,[ref]$retry)) { $retry=3 }
-        $credentialUpdated=Update-SitecNetworkCredentialFromUi
+        $credentialUpdated=Update-SitecNetworkCredentialFromUi -RequirePassword
         if (-not [string]::IsNullOrWhiteSpace($LauncherDir)) {
             Save-SitecNetworkExportSettings -LauncherDir $LauncherDir -Enabled ([bool]$ChkNetworkExport.IsChecked) -SharePath $TxtNetworkSharePath.Text.Trim() -Username $TxtNetworkUsername.Text.Trim() -Password ([string]$PwdNetworkPassword.Password) -AutoExport ([bool]$ChkNetworkAutoExport.IsChecked) -RetryCount $retry -RetryDelaySeconds 2 | Out-Null
-            $TxtNetworkExportStatus.Text=if($credentialUpdated){'Network settings and Windows SMB credential saved.'}else{'Network export settings saved; existing Windows SMB password kept.'}
+            $TxtNetworkExportStatus.Text='Network export settings saved.'
         } else {
-            $TxtNetworkExportStatus.Text=if($credentialUpdated){'Windows SMB credential updated. Source-mode settings remain session-only.'}else{'Source mode: settings are active for this session only.'}
+            $TxtNetworkExportStatus.Text='Source mode: network settings are active for this session only.'
         }
     } catch {
         $TxtNetworkExportStatus.Text=('Save failed: '+$_.Exception.Message)
@@ -314,11 +314,10 @@ $BtnSaveNetwork.Add_Click({
 
 $BtnTestNetwork.Add_Click({
     try {
-        [void](Update-SitecNetworkCredentialFromUi)
         Start-SitecNetworkProbe -Reason 'manual'
     } catch {
-        $TxtNetworkExportStatus.Text=('Credential update failed: '+$_.Exception.Message)
-        Add-SitecUiNetworkLog ('Credential update FAIL: '+$_.Exception.Message)
+        $TxtNetworkExportStatus.Text=('Connection setup failed: '+$_.Exception.Message)
+        Add-SitecUiNetworkLog ('Connection setup FAIL: '+$_.Exception.Message)
     }
 })
 
@@ -508,6 +507,7 @@ $timer.Add_Tick({
             if ([bool]$ChkNetworkExport.IsChecked -and [bool]$ChkNetworkAutoExport.IsChecked) {
                 $retry=3
                 if (-not [int]::TryParse($TxtNetworkRetryCount.Text,[ref]$retry)) { $retry=3 }
+                [void](Update-SitecNetworkCredentialFromUi -RequirePassword)
                 $certificate=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $asset
                 $export=Invoke-SitecNetworkExport -AssetId $asset -SharePath $TxtNetworkSharePath.Text.Trim() -Files @($fullJson,$certificate) -RetryCount $retry -RetryDelaySeconds 2
                 if ($export.Success -and $export.Verified) {
