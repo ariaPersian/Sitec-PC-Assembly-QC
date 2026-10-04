@@ -65,6 +65,7 @@ $ChkNetworkExport=C 'ChkNetworkExport'
 $TxtNetworkSharePath=C 'TxtNetworkSharePath'
 $BtnOpenNetworkPath=C 'BtnOpenNetworkPath'
 $TxtNetworkUsername=C 'TxtNetworkUsername'
+$PwdNetworkPassword=C 'PwdNetworkPassword'
 $ChkNetworkAutoExport=C 'ChkNetworkAutoExport'
 $TxtNetworkRetryCount=C 'TxtNetworkRetryCount'
 $BtnTestNetwork=C 'BtnTestNetwork'
@@ -116,6 +117,7 @@ $networkSettings=Get-SitecNetworkExportSettings -Context $context -LauncherDir $
 $ChkNetworkExport.IsChecked=[bool]$networkSettings.Enabled
 $TxtNetworkSharePath.Text=[string]$networkSettings.SharePath
 $TxtNetworkUsername.Text=[string]$networkSettings.Username
+$PwdNetworkPassword.Password=''
 $ChkNetworkAutoExport.IsChecked=[bool]$networkSettings.AutoExport
 $TxtNetworkRetryCount.Text=[string]$networkSettings.RetryCount
 $TxtNetworkExportStatus.Text='Startup network test pending...'
@@ -152,7 +154,7 @@ function Refresh-SitecHardware {
         $window.Dispatcher.Invoke([action]{},[Windows.Threading.DispatcherPriority]::Background)
         $h=Get-SitecHardwareInventory
         $script:Hardware=$h
-        if ([string]::IsNullOrWhiteSpace($TxtAssetId.Text)) { $TxtAssetId.Text=Get-SitecAutoAssetId -Hardware $h }
+        if ([string]::IsNullOrWhiteSpace($TxtAssetId.Text)) { $TxtAssetId.Text='CASE-' }
 
         $lines=@()
         $lines += "Computer   : $($h.ComputerName)"
@@ -215,6 +217,23 @@ function Add-SitecUiNetworkLog {
     $TxtLog.ScrollToEnd()
 }
 
+function Update-SitecNetworkCredentialFromUi {
+    param([switch]$RequirePassword)
+
+    $password=[string]$PwdNetworkPassword.Password
+    if ([string]::IsNullOrWhiteSpace($password)) {
+        if ($RequirePassword) { throw 'Enter a collector password first.' }
+        return $false
+    }
+
+    $sharePath=$TxtNetworkSharePath.Text.Trim()
+    $username=$TxtNetworkUsername.Text.Trim()
+    Set-SitecNetworkExportCredential -SharePath $sharePath -Username $username -Password $password | Out-Null
+    $PwdNetworkPassword.Clear()
+    Add-SitecUiNetworkLog ("Windows Credential Manager updated for {0} as {1}. Password was not written to SitecQC settings/logs." -f (Get-SitecNetworkExportServer -SharePath $sharePath),$username)
+    return $true
+}
+
 function Start-SitecNetworkProbe {
     param([ValidateSet('startup','manual')][string]$Reason='manual')
 
@@ -266,6 +285,7 @@ $BtnOpenNetworkPath.Add_Click({
     try {
         $path=$TxtNetworkSharePath.Text.Trim()
         $user=$TxtNetworkUsername.Text.Trim()
+        [void](Update-SitecNetworkCredentialFromUi)
         $opened=Open-SitecNetworkExportExplorer -SharePath $path -Username $user
         $TxtNetworkExportStatus.Text=("Opened collector: {0}" -f $opened.SharePath)
         Add-SitecUiNetworkLog ("Explorer opened for {0} using the Windows stored SMB credential for {1}." -f $opened.SharePath,$user)
@@ -279,17 +299,29 @@ $BtnSaveNetwork.Add_Click({
     try {
         $retry=3
         if (-not [int]::TryParse($TxtNetworkRetryCount.Text,[ref]$retry)) { $retry=3 }
+        $credentialUpdated=Update-SitecNetworkCredentialFromUi
         if (-not [string]::IsNullOrWhiteSpace($LauncherDir)) {
             Save-SitecNetworkExportSettings -LauncherDir $LauncherDir -Enabled ([bool]$ChkNetworkExport.IsChecked) -SharePath $TxtNetworkSharePath.Text.Trim() -Username $TxtNetworkUsername.Text.Trim() -AutoExport ([bool]$ChkNetworkAutoExport.IsChecked) -RetryCount $retry -RetryDelaySeconds 2 | Out-Null
-            $TxtNetworkExportStatus.Text='Network export settings saved.'
+            $TxtNetworkExportStatus.Text=if($credentialUpdated){'Network settings and Windows SMB credential saved.'}else{'Network export settings saved; existing Windows SMB password kept.'}
         } else {
-            $TxtNetworkExportStatus.Text='Source mode: settings are active for this session only.'
+            $TxtNetworkExportStatus.Text=if($credentialUpdated){'Windows SMB credential updated. Source-mode settings remain session-only.'}else{'Source mode: settings are active for this session only.'}
         }
-    } catch { $TxtNetworkExportStatus.Text=('Save failed: '+$_.Exception.Message) }
+    } catch {
+        $PwdNetworkPassword.Clear()
+        $TxtNetworkExportStatus.Text=('Save failed: '+$_.Exception.Message)
+        Add-SitecUiNetworkLog ('Save network settings FAIL: '+$_.Exception.Message)
+    }
 })
 
 $BtnTestNetwork.Add_Click({
-    Start-SitecNetworkProbe -Reason 'manual'
+    try {
+        [void](Update-SitecNetworkCredentialFromUi)
+        Start-SitecNetworkProbe -Reason 'manual'
+    } catch {
+        $PwdNetworkPassword.Clear()
+        $TxtNetworkExportStatus.Text=('Credential update failed: '+$_.Exception.Message)
+        Add-SitecUiNetworkLog ('Credential update FAIL: '+$_.Exception.Message)
+    }
 })
 
 $BtnRun.Add_Click({
@@ -299,7 +331,7 @@ $BtnRun.Add_Click({
         $usbStorage=@($script:Hardware.Storage | Where-Object { [string]$_.BusType -match '^(USB|SD|MMC)$' })
         if ($usbStorage.Count -gt 0) { throw 'Disconnect all USB/removable storage before QC so it is not included in the hardware inventory.' }
         $asset=$TxtAssetId.Text.Trim()
-        if ($asset -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$') { throw 'Asset ID is invalid. Scan/enter a valid physical asset label.' }
+        if ($asset -eq 'CASE-' -or $asset -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$') { throw 'Asset ID is incomplete or invalid. Enter the unique identifier after CASE- (or replace it with a complete valid Asset ID).' }
         $required=@()
         if (Get-SitecCaptureFlag 'RequirePsuSerial' $true) { $required += [pscustomobject]@{Name='PSU serial';Value=$TxtPsuSerial.Text} }
         if (Get-SitecCaptureFlag 'RequireCpuAtpo' $true) { $required += [pscustomobject]@{Name='CPU ATPO';Value=$TxtCpuAtpo.Text} }
@@ -566,8 +598,7 @@ $BtnOpenLast.Add_Click({ if ($script:LastReport -and (Test-Path $script:LastRepo
 
 try { Ensure-SitecDependencies } catch {}
 Refresh-SitecHardware
-if (Get-SitecCaptureFlag 'RequirePsuSerial' $true) { $TxtPsuSerial.Focus() | Out-Null }
-elseif (Get-SitecCaptureFlag 'RequireCpuAtpo' $true) { $TxtCpuAtpo.Focus() | Out-Null }
-elseif (Get-SitecCaptureFlag 'RequireSeal1' $true) { $TxtSeal1.Focus() | Out-Null }
-else { $BtnRun.Focus() | Out-Null }
+if ([string]::IsNullOrWhiteSpace($TxtAssetId.Text)) { $TxtAssetId.Text='CASE-' }
+$TxtAssetId.Focus() | Out-Null
+$TxtAssetId.CaretIndex=$TxtAssetId.Text.Length
 [void]$window.ShowDialog()

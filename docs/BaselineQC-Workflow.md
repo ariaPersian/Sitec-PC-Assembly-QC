@@ -1,6 +1,6 @@
 # Production BaselineQC workflow
 
-This is the approved production/handover workflow for **SitecQC v3.20.0**.
+This is the approved production/handover workflow for **SitecQC v3.21.0**.
 
 ## Preparation on each PC
 
@@ -32,7 +32,7 @@ Before a new run for the same Asset ID, stale residue in that Asset-specific scr
 
 1. Launch `C:\BaselineQC\SitecQC.exe` and approve UAC.
 2. Review detected motherboard, CPU, RAM, internal storage, BIOS and other hardware.
-3. Confirm/scan **Asset ID**.
+3. The **Asset ID** field starts as `CASE-`. Enter/scan the unique suffix (for example `CASE-001`) and confirm it.
 4. Scan **PSU Serial**.
 5. Scan **CPU Full ATPO** from the Intel 2D matrix/controlled box label.
 6. Confirm **Tamper seal #1**. It follows Asset ID automatically unless the physical seal uses a different value.
@@ -120,7 +120,7 @@ No archive flash drive is required. SitecQC transfers the two final files automa
 \\10.50.50.20\QC-Results\<PC-ID>\
 ```
 
-The operator may press **Open** in **Network export settings** to open the collector root in Windows Explorer. Windows uses the pre-provisioned `QCTransfer` credential automatically, so the operator is not prompted for a username/password.
+The operator may manage the collector credential directly in **Network export settings** using the editable Username and masked Password fields. A non-empty Password is written to Windows Credential Manager when **Save settings**, **Open**, or **Test connection** is used, then the Password field is cleared. With a valid stored credential, **Open** launches the collector root in Windows Explorer without a credential prompt.
 
 The required machine-readable fields are imported from the network `Full.json` into the protected master Excel/archive. Cross-PC duplicate-serial detection, fleet-level auditing and later returned-PC comparison are company-side operations. No durable fleet database or serial index is intentionally stored under ProgramData on the delivered PC.
 

@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, optional production-profile comparison, benchmark/burn-in testing, WHEA error capture, hardware identity/integrity validation, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.20.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / optional profile comparison (OFF by default) / independent identity-integrity validation / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
+Current production workflow: **v3.21.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / optional profile comparison (OFF by default) / independent identity-integrity validation / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -57,7 +57,7 @@ See [`docs/ASSET-DATA-ROOT.md`](docs/ASSET-DATA-ROOT.md) for the exact mapping a
 
 The normal operator-facing fields are:
 
-- **Asset ID** — organizational/physical case identifier. It also determines the Asset-scoped `SitecQC-Data-*` working folder. Tamper seal #1 follows Asset ID automatically unless the operator overrides it.
+- **Asset ID** — organizational/physical case identifier. The field is prefilled with `CASE-`; the operator enters/scans the unique suffix. It also determines the Asset-scoped `SitecQC-Data-*` working folder. Tamper seal #1 follows Asset ID automatically unless the operator overrides it.
 - **PSU Serial** — scanned from the installed PSU/controlled packaging.
 - **CPU 2D / ATPO** — Intel Full ATPO scanned from the processor 2D matrix or boxed-processor label.
 - **Tamper seal #1** — normally the same value as Asset ID; may be edited when the physical seal uses a different serial.
@@ -223,7 +223,7 @@ Cross-PC duplicate-serial detection and long-term baseline comparison belong to 
 
 Normal operators use only `SitecQC.exe`. Repository scripts such as `Start-SitecQC.ps1`, `Invoke-SitecQC.ps1`, and dependency tooling are retained for development, CI and troubleshooting. If `Invoke-SitecQC.ps1` is started directly without an explicit `-DataRoot`, it resolves the same Asset-scoped data-root rule used by the production GUI.
 
-GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests, Asset-ID data-root mapping, HWID behavior, reporting and the self-contained Windows x64 package. A successful push to `main` publishes the authoritative versioned executable and its SHA-256 file under the matching GitHub Release, for example `SitecQC-Windows-x64-v3.20.0.exe`. The ordinary Actions artifact is only a short-lived secondary copy with a 3-day retention period; older SitecQC Actions artifacts are cleaned before new main-branch uploads, and an Actions-artifact quota problem does not block publishing the versioned Release build.
+GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests, Asset-ID data-root mapping, HWID behavior, reporting and the self-contained Windows x64 package. A successful push to `main` publishes the authoritative versioned executable and its SHA-256 file under the matching GitHub Release, for example `SitecQC-Windows-x64-v3.21.0.exe`. The ordinary Actions artifact is only a short-lived secondary copy with a 3-day retention period; older SitecQC Actions artifacts are cleaned before new main-branch uploads, and an Actions-artifact quota problem does not block publishing the versioned Release build.
 
 ## Documentation
 
@@ -237,6 +237,6 @@ GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests,
 
 ## QC network export
 
-The production UI includes a dedicated **Network export settings** panel. On the first rendered screen, SitecQC automatically launches the collector connection/write test in a separate PowerShell worker. The GUI remains responsive during this test, so the operator can immediately enter Asset ID, PSU serial, CPU ATPO and other QC values. Startup/manual test results are written to the on-screen NETWORK log and status line. The default collector path is `\\10.50.50.20\QC-Results`, the account label is `QCTransfer`, and automatic export is enabled. Each run is stored under `<PC-ID>`, where PC-ID is the confirmed Asset ID. SitecQC uploads both final files to temporary names, verifies SHA-256 on the collector, promotes them to final names, and only then removes the local Full JSON. Use **Open** to launch `\\10.50.50.20\QC-Results\` directly in Windows Explorer. Windows supplies the pre-provisioned `QCTransfer` SMB credential automatically, so the operator is not prompted for a username or password. **Test connection** verifies TCP/445 plus write/delete permission, and **Save settings** creates the machine-local `SitecQC.local.json` override next to the executable.
+The production UI includes a dedicated **Network export settings** panel. On the first rendered screen, SitecQC automatically launches the collector connection/write test in a separate PowerShell worker. The GUI remains responsive during this test, so the operator can immediately enter Asset ID, PSU serial, CPU ATPO and other QC values. Startup/manual test results are written to the on-screen NETWORK log and status line. The default collector path is `\\10.50.50.20\QC-Results`, the account label is `QCTransfer`, and automatic export is enabled. A masked **Password** field lets the operator set/change the collector password; the value is written directly to Windows Credential Manager and is never stored in `SitecQC.local.json`, logs, or the repository. Leaving Password blank keeps the existing stored credential. Each run is stored under `<PC-ID>`, where PC-ID is the confirmed Asset ID. SitecQC uploads both final files to temporary names, verifies SHA-256 on the collector, promotes them to final names, and only then removes the local Full JSON. Use **Open** to launch `\\10.50.50.20\QC-Results\` directly in Windows Explorer. If a new Password is present in the field, SitecQC updates Credential Manager first; otherwise Windows uses the existing stored credential. **Test connection** behaves the same way and then verifies TCP/445 plus write/delete permission. **Save settings** stores non-secret settings and, when Password is entered, updates the Windows credential.
 
 SMB authentication is deliberately supplied by Windows Credential Manager rather than embedding a live password in this public repository. Provision the collector credential once in the production Windows user profile (preferably as part of the golden-image/post-deploy setup); the **Open** button and automatic export then authenticate silently. See [docs/network-export.md](docs/network-export.md).

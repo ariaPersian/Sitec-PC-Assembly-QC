@@ -1,10 +1,10 @@
 # Production Operations Guide
 
-This document describes the production procedure for **SitecQC v3.20.0 / BaselineQC-local / Asset-scoped data root**.
+This document describes the production procedure for **SitecQC v3.21.0 / BaselineQC-local / Asset-scoped data root**.
 
 ## 1. Production package and location
 
-Use the versioned GitHub Release executable as the authoritative operator package, for example `SitecQC-Windows-x64-v3.20.0.exe`. Each Release also contains a matching `.sha256` file. The ordinary GitHub Actions artifact named `SitecQC-Windows-x64` is only a short-lived secondary copy.
+Use the versioned GitHub Release executable as the authoritative operator package, for example `SitecQC-Windows-x64-v3.21.0.exe`. Each Release also contains a matching `.sha256` file. The ordinary GitHub Actions artifact named `SitecQC-Windows-x64` is only a short-lived secondary copy.
 
 On every assembled PC create:
 
@@ -56,7 +56,7 @@ Before a new run for the same Asset ID, stale residue is removed. After finaliza
 1. Confirm no removable storage is attached.
 2. Open `C:\BaselineQC\SitecQC.exe` and approve UAC.
 3. Review automatically detected hardware.
-4. Confirm/scan Asset ID.
+4. Asset ID is prefilled with `CASE-`; enter/scan the unique suffix and confirm the complete value.
 5. Scan PSU Serial.
 6. Scan CPU Full ATPO.
 7. Confirm Tamper seal #1.
@@ -150,4 +150,4 @@ PassMark BurnInTest may remain supporting evidence during development/validation
 
 ## 16. Collector credential and Open button
 
-The **Open** button opens `\\10.50.50.20\QC-Results\` directly in Windows Explorer. The application does not expose or embed the collector password. Windows Credential Manager must contain the production credential for network address `10.50.50.20` and user `QCTransfer` in the QC operator's Windows profile. Provision this credential as part of golden-image/post-deploy preparation. If it is missing or invalid, SitecQC reports the failure and does not trigger a Windows credential prompt.
+The **Open** button opens `\\10.50.50.20\QC-Results\` directly in Windows Explorer. The Network export panel includes an editable Username field and a masked Password field. If Password is non-empty, SitecQC writes/updates the Windows Credential Manager entry for the collector before **Open**, **Test connection**, or **Save settings**, then clears the Password field. If Password is blank, the existing Windows credential is kept. The password is never stored in `SitecQC.local.json` or application logs. If no valid stored credential exists, SitecQC reports the failure rather than opening a Windows credential prompt.

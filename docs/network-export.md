@@ -16,7 +16,7 @@ Default collector settings:
 - Automatic export: enabled
 - Retry count: 3
 
-The application does not embed an SMB password in the public repository or executable settings. Windows supplies the SMB credential from Windows Credential Manager. The production Windows user must have a stored credential for `10.50.50.20` using account `QCTransfer`; this should be provisioned once during golden-image/post-deploy preparation. After that, the operator is not prompted for a username or password.
+The UI provides editable **Username** and masked **Password** fields. Entering a Password and pressing **Save settings**, **Open**, or **Test connection** updates the Windows Credential Manager entry for the collector before continuing. Leaving Password blank preserves the existing stored credential. The password is never written to `SitecQC.local.json`, application logs, the executable configuration, or this repository.
 
 Machine-local path/user/auto-export settings are stored in `SitecQC.local.json` next to `SitecQC.exe`.
 
@@ -31,7 +31,9 @@ The **Test connection** action verifies TCP/445, SMB access, and actual write/de
 
 ## Credential provisioning
 
-Provision the collector credential in the Windows user profile used for QC before production use:
+The credential can be provisioned directly from SitecQC: enter `QCTransfer` (or another configured account) in **Username**, type the password in the masked **Password** field, then press **Save settings**. SitecQC writes the credential through the Windows Credential Manager API and immediately clears the Password field.
+
+Manual Windows provisioning remains available when needed:
 
 1. Open **Credential Manager** → **Windows Credentials**.
 2. Choose **Add a Windows credential**.
@@ -39,4 +41,4 @@ Provision the collector credential in the Windows user profile used for QC befor
 4. User name: `QCTransfer`.
 5. Enter the production QCTransfer password used by the collector laptop.
 
-Do not commit that password to this repository or to `appsettings.json`. For cloned systems, make credential provisioning part of the golden-image/post-deploy process and validate it on at least one deployed clone before scaling out.
+Do not commit that password to this repository or to `appsettings.json`. The in-app Password field is intentionally transient. For cloned systems, either provision the credential in the golden-image/post-deploy process or enter it once through SitecQC on each production Windows profile; validate it on at least one deployed clone before scaling out.

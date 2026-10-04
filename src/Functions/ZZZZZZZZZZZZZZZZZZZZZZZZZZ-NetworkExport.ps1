@@ -100,6 +100,82 @@ function Get-SitecNetworkExportServer {
     ''
 }
 
+function Set-SitecNetworkExportCredential {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$SharePath,
+        [Parameter(Mandatory)][string]$Username,
+        [Parameter(Mandatory)][string]$Password
+    )
+
+    $server=Get-SitecNetworkExportServer -SharePath $SharePath
+    if ([string]::IsNullOrWhiteSpace($server)) { throw 'Network share path is not a valid UNC path.' }
+    if ([string]::IsNullOrWhiteSpace($Username)) { throw 'Network export username is required.' }
+    if ([string]::IsNullOrWhiteSpace($Password)) { throw 'Network export password is empty.' }
+
+    if ($null -eq ('SitecCredentialNative' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+
+public static class SitecCredentialNative
+{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct CREDENTIAL
+    {
+        public UInt32 Flags;
+        public UInt32 Type;
+        [MarshalAs(UnmanagedType.LPWStr)] public string TargetName;
+        [MarshalAs(UnmanagedType.LPWStr)] public string Comment;
+        public FILETIME LastWritten;
+        public UInt32 CredentialBlobSize;
+        public IntPtr CredentialBlob;
+        public UInt32 Persist;
+        public UInt32 AttributeCount;
+        public IntPtr Attributes;
+        [MarshalAs(UnmanagedType.LPWStr)] public string TargetAlias;
+        [MarshalAs(UnmanagedType.LPWStr)] public string UserName;
+    }
+
+    [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool CredWrite(ref CREDENTIAL credential, UInt32 flags);
+}
+'@
+    }
+
+    $blob=[Runtime.InteropServices.Marshal]::StringToCoTaskMemUni($Password)
+    try {
+        $credential=New-Object SitecCredentialNative+CREDENTIAL
+        $credential.Flags=0
+        $credential.Type=2 # CRED_TYPE_DOMAIN_PASSWORD / Windows credential
+        $credential.TargetName=$server
+        $credential.Comment='SITEC QC collector credential'
+        $credential.CredentialBlobSize=[Text.Encoding]::Unicode.GetByteCount($Password)
+        $credential.CredentialBlob=$blob
+        $credential.Persist=2 # CRED_PERSIST_LOCAL_MACHINE
+        $credential.AttributeCount=0
+        $credential.Attributes=[IntPtr]::Zero
+        $credential.TargetAlias=$null
+        $credential.UserName=$Username.Trim()
+
+        $ok=[SitecCredentialNative]::CredWrite([ref]$credential,0)
+        if (-not $ok) {
+            $errorCode=[Runtime.InteropServices.Marshal]::GetLastWin32Error()
+            throw "Windows Credential Manager rejected the QC collector credential (Win32 error $errorCode)."
+        }
+    } finally {
+        if ($blob -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeCoTaskMemUnicode($blob) }
+    }
+
+    [pscustomobject][ordered]@{
+        Success=$true
+        Server=$server
+        Username=$Username.Trim()
+        Message='QC collector credential was updated in Windows Credential Manager.'
+    }
+}
+
 function Test-SitecNetworkExportConnection {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$SharePath)
