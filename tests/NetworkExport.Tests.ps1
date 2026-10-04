@@ -58,6 +58,14 @@ try {
         throw 'After verified transfer the tested PC must retain only the QC Certificate PDF.'
     }
 
+    $startUi=Get-Content -LiteralPath (Join-Path $root 'Start-SitecQC.ps1') -Raw -Encoding UTF8
+    if ($startUi -notmatch "Add_ContentRendered") { throw 'GUI does not schedule an automatic startup network test after rendering.' }
+    if ($startUi -notmatch "Start-SitecNetworkProbe -Reason 'startup'") { throw 'Startup network test is not invoked automatically.' }
+    if ($startUi -notmatch "tools\\Test-NetworkExportWorker.ps1") { throw 'GUI does not use the dedicated background network-test worker.' }
+    if ($startUi -notmatch "\$networkTimer=New-Object Windows.Threading.DispatcherTimer") { throw 'GUI does not poll the background network test asynchronously.' }
+    if ($startUi -match "Test-SitecNetworkExportConnection -SharePath \$TxtNetworkSharePath") { throw 'Network Test button still performs the SMB test synchronously on the UI thread.' }
+    if ($startUi -notmatch "operator input remains available") { throw 'Network test status does not make the non-blocking behavior explicit.' }
+
     Write-Host 'Network export and local-retention tests passed.' -ForegroundColor Green
 }
 finally {
