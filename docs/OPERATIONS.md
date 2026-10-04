@@ -1,10 +1,10 @@
 # Production Operations Guide
 
-This document describes the production procedure for **SitecQC v3.10.0 / BaselineQC-local / Asset-scoped data root**.
+This document describes the production procedure for **SitecQC v3.20.0 / BaselineQC-local / Asset-scoped data root**.
 
 ## 1. Production package and location
 
-Use the versioned GitHub Release executable as the authoritative operator package, for example `SitecQC-Windows-x64-v3.10.0.exe`. Each Release also contains a matching `.sha256` file. The ordinary GitHub Actions artifact named `SitecQC-Windows-x64` is only a short-lived secondary copy.
+Use the versioned GitHub Release executable as the authoritative operator package, for example `SitecQC-Windows-x64-v3.20.0.exe`. Each Release also contains a matching `.sha256` file. The ordinary GitHub Actions artifact named `SitecQC-Windows-x64` is only a short-lived secondary copy.
 
 On every assembled PC create:
 
@@ -19,7 +19,7 @@ Rename/copy the downloaded versioned executable to `C:\BaselineQC\SitecQC.exe`. 
 
 **No USB flash drive, USB storage device, SD card or MMC storage should be connected during hardware discovery or QC.** A USB barcode/2D scanner is acceptable because it is an input/HID device rather than storage.
 
-Connect the company archive USB only after SitecQC has finished and been closed.
+Do not use a company archive USB for normal QC evidence transfer. Final evidence is transferred over the QC LAN to the collector share.
 
 ## 3. Automatic collection
 
@@ -85,18 +85,16 @@ A normal PASS requires expected BOM and mandatory identifiers to validate, requi
 
 ## 9. Local durable output
 
-On a successful run:
+After successful network transfer and SHA-256 verification, the tested PC retains only:
 
 ```text
 C:\BaselineQC\
 ├── SitecQC.exe
 └── Output\
-    ├── <AssetId>-QC-Certificate.pdf
-    ├── <AssetId>-Baseline.json
-    └── <AssetId>-Full.json
+    └── <PC-ID>-QC-Certificate.pdf
 ```
 
-`QC-Certificate.pdf` is the human-readable handover document. `Baseline.json` is the compact machine-readable fleet/Excel record. `Full.json` is the detailed machine-readable QC record and preserves the complete run object available at finalization: raw hardware inventory, physical identifiers, BOM validation, benchmark/burn-in data, WHEA data, validation status, duplicate-serial results, PassMark metadata when present, and hardware/manifest hashes plus signature-verification metadata when available.
+The collector at `\\10.50.50.20\QC-Results\<PC-ID>\` retains the QC Certificate PDF and authoritative `Full.json`. If transfer/verification fails, the local Full JSON is preserved automatically to prevent evidence loss.
 
 A failed/error run may additionally leave:
 
@@ -114,18 +112,17 @@ During a production run, transient benchmark/log/manifest material lives under t
 C:\SitecQC-Data-001\Assets\CASE-001\Runs\CASE-001-<timestamp>\...
 ```
 
-The launcher payload is extracted under `%TEMP%\SitecQC-App-*`. After finalization, scratch/runtime data is removed. Durable evidence is the PDF, Baseline JSON and Full JSON, plus `LastFailure.zip` only when troubleshooting a failed run.
+The launcher payload is extracted under `%TEMP%\SitecQC-App-*`. After finalization, scratch/runtime data is removed. Normal local retention is the QC Certificate PDF only; the collector keeps the PDF + Full JSON. `LastFailure.zip` is retained locally only when troubleshooting a failed run.
 
 ## 11. Customer handover
 
-1. SitecQC finishes while the company archive USB remains disconnected.
-2. The customer reviews the powered-on PC and displayed specifications.
-3. The two-page PDF is printed/reviewed.
-4. The case is physically sealed in front of the customer using the recorded tamper seal.
-5. SitecQC is closed.
-6. The company archive USB is connected.
-7. Copy `<AssetId>-QC-Certificate.pdf`, `<AssetId>-Baseline.json` and `<AssetId>-Full.json` to the company archive.
-8. Import/transfer required fields into the protected master Excel/fleet archive.
+1. SitecQC finishes with USB/removable storage disconnected.
+2. Confirm the network-transfer status is successful.
+3. The customer reviews the powered-on PC and displayed specifications.
+4. The two-page PDF is printed/reviewed.
+5. The case is physically sealed in front of the customer using the recorded tamper seal.
+6. Use **Open** in Network export settings when the collector needs to be inspected in Explorer; Windows authenticates automatically with the stored `QCTransfer` credential.
+7. Import/transfer required fields from `\\10.50.50.20\QC-Results\<PC-ID>\<PC-ID>-Full.json` into the protected master Excel/fleet archive.
 
 ## 12. Hardware Identity v2
 
@@ -149,3 +146,8 @@ Long-term duplicate-serial detection, baseline comparison and returned-PC verifi
 ## 15. PassMark coexistence
 
 PassMark BurnInTest may remain supporting evidence during development/validation, but SitecQC is the production operator workflow and report generator. Additional benchmark engines must remain internal adapters and must not require a separate operator procedure.
+
+
+## 16. Collector credential and Open button
+
+The **Open** button opens `\\10.50.50.20\QC-Results\` directly in Windows Explorer. The application does not expose or embed the collector password. Windows Credential Manager must contain the production credential for network address `10.50.50.20` and user `QCTransfer` in the QC operator's Windows profile. Provision this credential as part of golden-image/post-deploy preparation. If it is missing or invalid, SitecQC reports the failure and does not trigger a Windows credential prompt.
