@@ -153,7 +153,8 @@ function Invoke-SitecNetworkExport {
             if (-not (Test-Path -LiteralPath $SharePath)) { throw 'The SMB share is not accessible with the Windows credentials stored on this PC.' }
             New-Item -ItemType Directory -Path $destination -Force -ErrorAction Stop | Out-Null
             foreach ($file in $existing) {
-                Copy-Item -LiteralPath $file -Destination (Join-Path $destination ([IO.Path]::GetFileName($file)) -ErrorAction Stop)
+                $target=Join-Path $destination ([IO.Path]::GetFileName($file))
+                Copy-Item -LiteralPath $file -Destination $target -Force -ErrorAction Stop
             }
 
             return [pscustomobject][ordered]@{
