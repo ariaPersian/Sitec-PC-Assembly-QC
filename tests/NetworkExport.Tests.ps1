@@ -45,7 +45,7 @@ try {
     if (-not (Test-Path -LiteralPath $remoteFull) -or -not (Test-Path -LiteralPath $remotePdf)) { throw 'Collector does not contain both Full JSON and QC Certificate PDF.' }
     if ((Get-FileHash -LiteralPath $remoteFull -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $fullJson -Algorithm SHA256).Hash) { throw 'Remote Full JSON hash mismatch.' }
     if ((Get-FileHash -LiteralPath $remotePdf -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $certificate -Algorithm SHA256).Hash) { throw 'Remote QC Certificate hash mismatch.' }
-    if (Test-Path -LiteralPath (Join-Path $remoteRoot ([IO.Path]::GetFileName($baseline))) { throw 'Baseline JSON must not be transferred to the collector.' }
+    if (Test-Path -LiteralPath (Join-Path $remoteRoot ([IO.Path]::GetFileName($baseline)))) { throw 'Baseline JSON must not be transferred to the collector.' }
 
     $retention=Remove-SitecLocalMachineReadableOutputAfterTransfer -BaselineRoot $baselineRoot -AssetId $asset
     if (-not $retention.Success) { throw ('Local retention cleanup failed: '+$retention.Message) }
