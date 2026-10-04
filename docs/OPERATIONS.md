@@ -1,10 +1,10 @@
 # Production Operations Guide
 
-This document describes the production procedure for **SitecQC v3.21.0 / BaselineQC-local / Asset-scoped data root**.
+This document describes the production procedure for **SitecQC v3.22.0 / BaselineQC-local / Asset-scoped data root**.
 
 ## 1. Production package and location
 
-Use the versioned GitHub Release executable as the authoritative operator package, for example `SitecQC-Windows-x64-v3.21.0.exe`. Each Release also contains a matching `.sha256` file. The ordinary GitHub Actions artifact named `SitecQC-Windows-x64` is only a short-lived secondary copy.
+Use the versioned GitHub Release executable as the authoritative operator package, for example `SitecQC-Windows-x64-v3.22.0.exe`. Each Release also contains a matching `.sha256` file. The ordinary GitHub Actions artifact named `SitecQC-Windows-x64` is only a short-lived secondary copy.
 
 On every assembled PC create:
 
@@ -150,4 +150,4 @@ PassMark BurnInTest may remain supporting evidence during development/validation
 
 ## 16. Collector credential and Open button
 
-The **Open** button opens `\\10.50.50.20\QC-Results\` directly in Windows Explorer. The Network export panel includes an editable Username field and a masked Password field. If Password is non-empty, SitecQC writes/updates the Windows Credential Manager entry for the collector before **Open**, **Test connection**, or **Save settings**, then clears the Password field. If Password is blank, the existing Windows credential is kept. The password is never stored in `SitecQC.local.json` or application logs. If no valid stored credential exists, SitecQC reports the failure rather than opening a Windows credential prompt.
+The **Open** button opens `\\10.50.50.20\QC-Results\` directly in Windows Explorer. The Network export panel includes editable Username and masked Password fields. Defaults are `QCTransfer` / `sitec`. **Save settings** stores both values locally; **Open** and **Test connection** use those values automatically so the operator does not re-enter them in Explorer.
