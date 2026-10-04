@@ -63,7 +63,7 @@ $TxtHeaderStatus=C 'TxtHeaderStatus'
 $TxtFooter=C 'TxtFooter'
 $ChkNetworkExport=C 'ChkNetworkExport'
 $TxtNetworkSharePath=C 'TxtNetworkSharePath'
-$BtnCopyNetworkPath=C 'BtnCopyNetworkPath'
+$BtnOpenNetworkPath=C 'BtnOpenNetworkPath'
 $TxtNetworkUsername=C 'TxtNetworkUsername'
 $ChkNetworkAutoExport=C 'ChkNetworkAutoExport'
 $TxtNetworkRetryCount=C 'TxtNetworkRetryCount'
@@ -262,14 +262,17 @@ $TxtPsuSerial.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtCpu
 $TxtCpuAtpo.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtSeal1.Focus() | Out-Null; $_.Handled=$true } })
 $TxtSeal1.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $BtnRun.Focus() | Out-Null; $_.Handled=$true } })
 
-$BtnCopyNetworkPath.Add_Click({
+$BtnOpenNetworkPath.Add_Click({
     try {
         $path=$TxtNetworkSharePath.Text.Trim()
-        if (-not [string]::IsNullOrWhiteSpace($path)) {
-            [Windows.Clipboard]::SetText($path)
-            $TxtNetworkExportStatus.Text='Collector path copied to clipboard.'
-        }
-    } catch { $TxtNetworkExportStatus.Text=$_.Exception.Message }
+        $user=$TxtNetworkUsername.Text.Trim()
+        $opened=Open-SitecNetworkExportExplorer -SharePath $path -Username $user
+        $TxtNetworkExportStatus.Text=("Opened collector: {0}" -f $opened.SharePath)
+        Add-SitecUiNetworkLog ("Explorer opened for {0} using the Windows stored SMB credential for {1}." -f $opened.SharePath,$user)
+    } catch {
+        $TxtNetworkExportStatus.Text=('Open failed: '+$_.Exception.Message)
+        Add-SitecUiNetworkLog ('Open collector FAIL: '+$_.Exception.Message)
+    }
 })
 
 $BtnSaveNetwork.Add_Click({
