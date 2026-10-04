@@ -7,6 +7,8 @@ SitecQC automatically transfers the two final QC deliverables to the SMB collect
 
 `PC-ID` is the confirmed Asset ID entered/scanned in the production UI. Files are stored under `\\10.50.50.20\QC-Results\<PC-ID>\`.
 
+At application startup, the collector test begins automatically after the WPF window is rendered. It runs in a separate PowerShell process and is polled by a lightweight UI timer, so the UI thread is never blocked by SMB/TCP timeouts. The operator can continue entering all QC fields while the test is in progress. The result is appended to the on-screen `[NETWORK]` log and shown in the network status line.
+
 Default collector settings:
 
 - Share: `\\10.50.50.20\QC-Results`

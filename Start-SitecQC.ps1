@@ -104,6 +104,13 @@ $script:CurrentStatus=$null
 $script:Hardware=$null
 $script:WorkRoot=$null
 $script:CancelPath=$null
+$script:NetworkTestProcess=$null
+$script:NetworkTestResultPath=$null
+$script:NetworkTestSharePath=''
+$script:NetworkTestReason=''
+$script:NetworkTestStartedAt=$null
+$script:InitialNetworkProbeStarted=$false
+$script:NetworkLogLines=@()
 
 $networkSettings=Get-SitecNetworkExportSettings -Context $context -LauncherDir $LauncherDir
 $ChkNetworkExport.IsChecked=[bool]$networkSettings.Enabled
@@ -111,7 +118,7 @@ $TxtNetworkSharePath.Text=[string]$networkSettings.SharePath
 $TxtNetworkUsername.Text=[string]$networkSettings.Username
 $ChkNetworkAutoExport.IsChecked=[bool]$networkSettings.AutoExport
 $TxtNetworkRetryCount.Text=[string]$networkSettings.RetryCount
-$TxtNetworkExportStatus.Text='Not tested'
+$TxtNetworkExportStatus.Text='Startup network test pending...'
 
 function Get-SitecCaptureFlag([string]$Name,[bool]$Default) {
     if ($null -eq $profile.Capture) { return $Default }
@@ -186,6 +193,68 @@ function Format-SitecUiDuration([double]$Seconds) {
     if ($ts.TotalHours -ge 1) { return ('{0:00}:{1:00}:{2:00}' -f [int]$ts.TotalHours,$ts.Minutes,$ts.Seconds) }
     return ('{0:00}:{1:00}' -f $ts.Minutes,$ts.Seconds)
 }
+
+function Add-SitecUiNetworkLog {
+    param([Parameter(Mandatory)][string]$Message)
+    $line=('[{0}] [NETWORK] {1}' -f (Get-Date).ToString('HH:mm:ss'),$Message)
+    $script:NetworkLogLines += $line
+
+    # Network diagnostics are kept separately in memory so the benchmark
+    # worker-log refresh cannot erase the startup/manual connectivity result.
+    if ($script:Worker -and -not $script:Worker.HasExited) {
+        $workerText=''
+        if ($script:CurrentStatus -and $script:CurrentStatus.PSObject.Properties['RunPath']) {
+            $workerLog=Join-Path ([string]$script:CurrentStatus.RunPath) 'worker.log'
+            if (Test-Path -LiteralPath $workerLog) { $workerText=Get-Content -LiteralPath $workerLog -Raw -Encoding UTF8 }
+        }
+        $networkText=@($script:NetworkLogLines) -join [Environment]::NewLine
+        $TxtLog.Text=if([string]::IsNullOrWhiteSpace($workerText)){$networkText}else{$networkText+[Environment]::NewLine+$workerText}
+    } else {
+        $TxtLog.Text=(@($script:NetworkLogLines) -join [Environment]::NewLine)
+    }
+    $TxtLog.ScrollToEnd()
+}
+
+function Start-SitecNetworkProbe {
+    param([ValidateSet('startup','manual')][string]$Reason='manual')
+
+    try {
+        if ($script:NetworkTestProcess) {
+            try { $script:NetworkTestProcess.Refresh() } catch {}
+            if (-not $script:NetworkTestProcess.HasExited) {
+                $TxtNetworkExportStatus.Text='Network test is already running in the background.'
+                return
+            }
+        }
+
+        $sharePath=$TxtNetworkSharePath.Text.Trim()
+        if ([string]::IsNullOrWhiteSpace($sharePath)) { throw 'Collector path is empty.' }
+
+        $networkWorker=Join-Path $root 'tools\Test-NetworkExportWorker.ps1'
+        if (-not (Test-Path -LiteralPath $networkWorker)) { throw 'Background network-test worker is missing.' }
+
+        if ($script:NetworkTestResultPath) {
+            Remove-Item -LiteralPath $script:NetworkTestResultPath -Force -ErrorAction SilentlyContinue
+        }
+        $script:NetworkTestResultPath=Join-Path $env:TEMP ('SitecQC-NetworkTest-'+[guid]::NewGuid().ToString('N')+'.json')
+        $script:NetworkTestSharePath=$sharePath
+        $script:NetworkTestReason=$Reason
+        $script:NetworkTestStartedAt=Get-Date
+
+        $args=@(
+            '-NoProfile','-ExecutionPolicy','Bypass','-File',(Q $networkWorker),
+            '-SharePath',(Q $sharePath),'-ResultPath',(Q $script:NetworkTestResultPath),'-Reason',(Q $Reason)
+        )
+        $script:NetworkTestProcess=Start-Process powershell.exe -ArgumentList ($args -join ' ') -PassThru -WindowStyle Hidden
+        $BtnTestNetwork.IsEnabled=$false
+        $TxtNetworkExportStatus.Text='Testing network in background... You can continue entering QC values.'
+        Add-SitecUiNetworkLog ("{0} collector test started for {1}; operator input remains available." -f $Reason,$sharePath)
+    } catch {
+        $BtnTestNetwork.IsEnabled=$true
+        $TxtNetworkExportStatus.Text=('Unable to start network test: '+$_.Exception.Message)
+        Add-SitecUiNetworkLog ('Network test could not start: '+$_.Exception.Message)
+    }
+}
 $BtnDetect.Add_Click({ Refresh-SitecHardware })
 $TxtAssetId.Add_TextChanged({ $TxtSeal1.Text=$TxtAssetId.Text })
 $TxtAssetId.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtPsuSerial.Focus() | Out-Null; $_.Handled=$true } })
@@ -217,16 +286,7 @@ $BtnSaveNetwork.Add_Click({
 })
 
 $BtnTestNetwork.Add_Click({
-    try {
-        $TxtNetworkExportStatus.Text='Testing collector access and write permission...'
-        $window.Dispatcher.Invoke([action]{},[Windows.Threading.DispatcherPriority]::Background)
-        $test=Test-SitecNetworkExportConnection -SharePath $TxtNetworkSharePath.Text.Trim()
-        if ($test.Success) {
-            $TxtNetworkExportStatus.Text='Connected: collector write test passed.'
-        } else {
-            $TxtNetworkExportStatus.Text=('Connection failed: '+$test.Message)
-        }
-    } catch { $TxtNetworkExportStatus.Text=('Connection failed: '+$_.Exception.Message) }
+    Start-SitecNetworkProbe -Reason 'manual'
 })
 
 $BtnRun.Add_Click({
@@ -270,7 +330,7 @@ $BtnRun.Add_Click({
         $BtnCancel.Visibility='Visible';$BtnCancel.IsEnabled=$true
         @($ChkProfileComparison,$ChkBenchCpu,$ChkBenchMemory,$ChkBenchDisk,$ChkBenchGraphics) | ForEach-Object { $_.IsEnabled=$false }
         $profileMode=if($ChkProfileComparison.IsChecked){"ON ($($profile.ProfileId))"}else{'OFF'}
-        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Clear();$ProgressQc.Value=1;$TxtProgressPercent.Text='1%';$TxtElapsed.Text='Elapsed: 00:00';$TxtRemaining.Text='Remaining: --:--';$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched for [{0}]. Profile comparison: {1}. Scratch data: {2} | Final output: {3}\Output" -f $benchmarkCsv,$profileMode,$script:WorkRoot,$BaselineRoot)
+        $TxtHeaderStatus.Text='RUNNING';$TxtLog.Text=(@($script:NetworkLogLines) -join [Environment]::NewLine);$ProgressQc.Value=1;$TxtProgressPercent.Text='1%';$TxtElapsed.Text='Elapsed: 00:00';$TxtRemaining.Text='Remaining: --:--';$TxtStage.Text='Starting';$TxtMessage.Text=("QC worker launched for [{0}]. Profile comparison: {1}. Scratch data: {2} | Final output: {3}\Output" -f $benchmarkCsv,$profileMode,$script:WorkRoot,$BaselineRoot)
     } catch { [Windows.MessageBox]::Show($_.Exception.Message,'Cannot start QC') | Out-Null }
 })
 
@@ -322,7 +382,12 @@ $timer.Add_Tick({
                         $TxtRemaining.Text='Remaining: calculating...'
                     }
                     $log=Join-Path $s.RunPath 'worker.log'
-                    if (Test-Path $log) { $TxtLog.Text=Get-Content $log -Raw -Encoding UTF8;$TxtLog.ScrollToEnd() }
+                    if (Test-Path $log) {
+                        $workerText=Get-Content $log -Raw -Encoding UTF8
+                        $networkText=@($script:NetworkLogLines) -join [Environment]::NewLine
+                        $TxtLog.Text=if([string]::IsNullOrWhiteSpace($networkText)){$workerText}else{$networkText+[Environment]::NewLine+$workerText}
+                        $TxtLog.ScrollToEnd()
+                    }
                 } catch {}
             }
         }
@@ -434,6 +499,66 @@ $timer.Add_Tick({
     }
 })
 $timer.Start()
+
+$networkTimer=New-Object Windows.Threading.DispatcherTimer
+$networkTimer.Interval=[TimeSpan]::FromMilliseconds(400)
+$networkTimer.Add_Tick({
+    if (-not $script:NetworkTestProcess) { return }
+
+    try { $script:NetworkTestProcess.Refresh() } catch {}
+    if (-not $script:NetworkTestProcess.HasExited) { return }
+
+    $result=$null
+    try {
+        if ($script:NetworkTestResultPath -and (Test-Path -LiteralPath $script:NetworkTestResultPath)) {
+            $result=Get-Content -LiteralPath $script:NetworkTestResultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        }
+    } catch {
+        $result=$null
+    }
+
+    if ($result -and [bool]$result.Success) {
+        $TxtNetworkExportStatus.Text=("Connected: background {0} test passed for {1}." -f $script:NetworkTestReason,$script:NetworkTestSharePath)
+        Add-SitecUiNetworkLog ("{0} collector test PASS: {1}" -f $script:NetworkTestReason,[string]$result.Message)
+    } else {
+        $message=if($result -and -not [string]::IsNullOrWhiteSpace([string]$result.Message)){[string]$result.Message}else{'Background network-test worker ended without a readable result.'}
+        $TxtNetworkExportStatus.Text=("Connection test failed: {0}" -f $message)
+        Add-SitecUiNetworkLog ("{0} collector test FAIL: {1}" -f $script:NetworkTestReason,$message)
+    }
+
+    if ($script:NetworkTestResultPath) {
+        Remove-Item -LiteralPath $script:NetworkTestResultPath -Force -ErrorAction SilentlyContinue
+    }
+    try { $script:NetworkTestProcess.Dispose() } catch {}
+    $script:NetworkTestProcess=$null
+    $script:NetworkTestResultPath=$null
+    $BtnTestNetwork.IsEnabled=$true
+})
+$networkTimer.Start()
+
+$window.Add_ContentRendered({
+    if ($script:InitialNetworkProbeStarted) { return }
+    $script:InitialNetworkProbeStarted=$true
+    if ([bool]$ChkNetworkExport.IsChecked) {
+        Start-SitecNetworkProbe -Reason 'startup'
+    } else {
+        $TxtNetworkExportStatus.Text='Startup network test skipped because network export is disabled.'
+        Add-SitecUiNetworkLog 'Startup collector test skipped because network export is disabled.'
+    }
+})
+
+$window.Add_Closed({
+    try { $networkTimer.Stop() } catch {}
+    if ($script:NetworkTestProcess) {
+        try {
+            $script:NetworkTestProcess.Refresh()
+            if (-not $script:NetworkTestProcess.HasExited) { Stop-Process -Id $script:NetworkTestProcess.Id -Force -ErrorAction SilentlyContinue }
+            $script:NetworkTestProcess.Dispose()
+        } catch {}
+    }
+    if ($script:NetworkTestResultPath) { Remove-Item -LiteralPath $script:NetworkTestResultPath -Force -ErrorAction SilentlyContinue }
+})
+
 $BtnOpenLast.Add_Click({ if ($script:LastReport -and (Test-Path $script:LastReport)) { Start-Process $script:LastReport } })
 
 try { Ensure-SitecDependencies } catch {}
