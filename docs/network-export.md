@@ -1,9 +1,11 @@
 # QC network export
 
-SitecQC can automatically copy the two operator-facing QC deliverables to an SMB collector after a run finishes:
+SitecQC automatically transfers the two final QC deliverables to the SMB collector after a run finishes:
 
-- `<AssetId>-Full.json`
-- `<AssetId>-QC-Certificate.pdf`
+- `<PC-ID>-Full.json`
+- `<PC-ID>-QC-Certificate.pdf`
+
+`PC-ID` is the confirmed Asset ID entered/scanned in the production UI. Files are stored under `\\10.50.50.20\QC-Results\<PC-ID>\`.
 
 Default collector settings:
 
@@ -16,6 +18,8 @@ The application does not embed an SMB password in the public repository or execu
 
 Machine-local path/user/auto-export settings are stored in `SitecQC.local.json` next to `SitecQC.exe`.
 
-The application always keeps the local PDF and Full JSON. A failed network export is reported separately and does not change the QC PASS/FAIL result.
+Each file is uploaded to a temporary name, SHA-256 verified on the collector, and only then promoted to its final filename. After both files are verified successfully, SitecQC removes the local Full JSON (and any temporary Baseline JSON) and keeps only `<PC-ID>-QC-Certificate.pdf` on the tested PC.
+
+If the network transfer or verification fails, SitecQC does **not** delete the local machine-readable evidence. The local Full JSON is preserved to prevent data loss, and the network-transfer failure remains separate from the QC PASS/FAIL result.
 
 The **Test connection** action verifies TCP/445, SMB access, and actual write/delete permission on the share.
