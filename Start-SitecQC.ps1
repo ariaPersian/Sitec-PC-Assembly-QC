@@ -61,6 +61,15 @@ $TxtMessage=C 'TxtMessage'
 $ProgressQc=C 'ProgressQc'
 $TxtHeaderStatus=C 'TxtHeaderStatus'
 $TxtFooter=C 'TxtFooter'
+$ChkNetworkExport=C 'ChkNetworkExport'
+$TxtNetworkSharePath=C 'TxtNetworkSharePath'
+$BtnCopyNetworkPath=C 'BtnCopyNetworkPath'
+$TxtNetworkUsername=C 'TxtNetworkUsername'
+$ChkNetworkAutoExport=C 'ChkNetworkAutoExport'
+$TxtNetworkRetryCount=C 'TxtNetworkRetryCount'
+$BtnTestNetwork=C 'BtnTestNetwork'
+$BtnSaveNetwork=C 'BtnSaveNetwork'
+$TxtNetworkExportStatus=C 'TxtNetworkExportStatus'
 
 $TxtProfileDisplay.Text=[string]$profile.ProfileId + ' v' + [string]$profile.ProfileVersion
 $profileTooltipLines=@(
@@ -86,7 +95,7 @@ $profileDisplayTip.Text=$profileTipText.Text
 $profileDisplayTip.TextWrapping='Wrap'
 $profileDisplayTip.MaxWidth=560
 $TxtProfileDisplay.ToolTip=$profileDisplayTip
-$TxtFooter.Text="Local baseline folder: $BaselineRoot  |  Profile comparison is optional and disabled by default. Connect the company USB only after QC is finished and SitecQC is closed."
+$TxtFooter.Text="Local baseline folder: $BaselineRoot  |  QC files stay local and can be exported automatically to the configured collector."
 
 $script:LastReport=$null
 $script:Worker=$null
@@ -95,6 +104,14 @@ $script:CurrentStatus=$null
 $script:Hardware=$null
 $script:WorkRoot=$null
 $script:CancelPath=$null
+
+$networkSettings=Get-SitecNetworkExportSettings -Context $context -LauncherDir $LauncherDir
+$ChkNetworkExport.IsChecked=[bool]$networkSettings.Enabled
+$TxtNetworkSharePath.Text=[string]$networkSettings.SharePath
+$TxtNetworkUsername.Text=[string]$networkSettings.Username
+$ChkNetworkAutoExport.IsChecked=[bool]$networkSettings.AutoExport
+$TxtNetworkRetryCount.Text=[string]$networkSettings.RetryCount
+$TxtNetworkExportStatus.Text='Not tested'
 
 function Get-SitecCaptureFlag([string]$Name,[bool]$Default) {
     if ($null -eq $profile.Capture) { return $Default }
@@ -176,12 +193,48 @@ $TxtPsuSerial.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtCpu
 $TxtCpuAtpo.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $TxtSeal1.Focus() | Out-Null; $_.Handled=$true } })
 $TxtSeal1.Add_KeyDown({ if ($_.Key -eq [Windows.Input.Key]::Enter) { $BtnRun.Focus() | Out-Null; $_.Handled=$true } })
 
+$BtnCopyNetworkPath.Add_Click({
+    try {
+        $path=$TxtNetworkSharePath.Text.Trim()
+        if (-not [string]::IsNullOrWhiteSpace($path)) {
+            [Windows.Clipboard]::SetText($path)
+            $TxtNetworkExportStatus.Text='Collector path copied to clipboard.'
+        }
+    } catch { $TxtNetworkExportStatus.Text=$_.Exception.Message }
+})
+
+$BtnSaveNetwork.Add_Click({
+    try {
+        $retry=3
+        if (-not [int]::TryParse($TxtNetworkRetryCount.Text,[ref]$retry)) { $retry=3 }
+        if (-not [string]::IsNullOrWhiteSpace($LauncherDir)) {
+            Save-SitecNetworkExportSettings -LauncherDir $LauncherDir -Enabled ([bool]$ChkNetworkExport.IsChecked) -SharePath $TxtNetworkSharePath.Text.Trim() -Username $TxtNetworkUsername.Text.Trim() -AutoExport ([bool]$ChkNetworkAutoExport.IsChecked) -RetryCount $retry -RetryDelaySeconds 2 | Out-Null
+            $TxtNetworkExportStatus.Text='Network export settings saved.'
+        } else {
+            $TxtNetworkExportStatus.Text='Source mode: settings are active for this session only.'
+        }
+    } catch { $TxtNetworkExportStatus.Text=('Save failed: '+$_.Exception.Message) }
+})
+
+$BtnTestNetwork.Add_Click({
+    try {
+        $TxtNetworkExportStatus.Text='Testing collector access and write permission...'
+        $window.Dispatcher.Invoke([action]{},[Windows.Threading.DispatcherPriority]::Background)
+        $test=Test-SitecNetworkExportConnection -SharePath $TxtNetworkSharePath.Text.Trim()
+        if ($test.Success) {
+            $TxtNetworkExportStatus.Text='Connected: collector write test passed.'
+        } else {
+            $TxtNetworkExportStatus.Text=('Connection failed: '+$test.Message)
+        }
+    } catch { $TxtNetworkExportStatus.Text=('Connection failed: '+$_.Exception.Message) }
+})
+
 $BtnRun.Add_Click({
     try {
         if ($script:Worker -and -not $script:Worker.HasExited) { return }
         if (-not $script:Hardware) { Refresh-SitecHardware }
         $usbStorage=@($script:Hardware.Storage | Where-Object { [string]$_.BusType -match '^(USB|SD|MMC)$' })
-        if ($usbStorage.Count -gt 0) { throw 'Disconnect all USB/removable storage before QC so it is not included in the hardware inventory. Connect the company flash drive only after SitecQC is closed.' }
+        if ($usbStorage.Count -gt 0) { throw 'Disconnect all USB/removable storage before QC so it is not included in the hardware inventory.' }
         $asset=$TxtAssetId.Text.Trim()
         if ($asset -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$') { throw 'Asset ID is invalid. Scan/enter a valid physical asset label.' }
         $required=@()
@@ -352,6 +405,24 @@ $timer.Add_Tick({
             }
             if ([string]::IsNullOrWhiteSpace($failureMessage)) { $failureMessage='The QC application or publishing pipeline encountered a runtime error.' }
             $TxtMessage.Text=("QC application ERROR. {0} Full JSON is the authoritative QC evidence when it is available." -f $failureMessage)
+        }
+        try {
+            if ([bool]$ChkNetworkExport.IsChecked -and [bool]$ChkNetworkAutoExport.IsChecked) {
+                $retry=3
+                if (-not [int]::TryParse($TxtNetworkRetryCount.Text,[ref]$retry)) { $retry=3 }
+                $certificate=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $asset
+                $export=Invoke-SitecNetworkExport -AssetId $asset -SharePath $TxtNetworkSharePath.Text.Trim() -Files @($fullJson,$certificate) -RetryCount $retry -RetryDelaySeconds 2
+                if ($export.Success) {
+                    $TxtNetworkExportStatus.Text=("Export complete: {0}" -f $export.Destination)
+                    $TxtMessage.Text += (" Network export: SUCCESS -> {0}" -f $export.Destination)
+                } else {
+                    $TxtNetworkExportStatus.Text=("Export failed: {0}" -f $export.Message)
+                    $TxtMessage.Text += ' Network export failed; local PDF and Full JSON were preserved.'
+                }
+            }
+        } catch {
+            $TxtNetworkExportStatus.Text=('Export failed: '+$_.Exception.Message)
+            $TxtMessage.Text += ' Network export failed; local PDF and Full JSON were preserved.'
         }
         $script:Worker=$null;$script:WorkRoot=$null;$script:CancelPath=$null
     }

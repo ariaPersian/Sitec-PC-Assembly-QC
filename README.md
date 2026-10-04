@@ -2,7 +2,7 @@
 
 Windows production-QC application for **hardware inventory, optional production-profile comparison, benchmark/burn-in testing, WHEA error capture, hardware identity/integrity validation, Excel-ready baseline export, complete JSON evidence, and a two-page customer QC certificate**.
 
-Current production workflow: **v3.16.1 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / optional profile comparison (OFF by default) / independent identity-integrity validation / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
+Current production workflow: **v3.17.0 / BaselineQC-local / Asset-scoped QC data root / operator-selectable benchmark components / optional profile comparison (OFF by default) / independent identity-integrity validation / MaximumSafe CPU-RAM-NVMe-GPU coverage / explicit PASS-FAIL-ERROR-CANCELLED semantics**.
 
 The project is being used for a batch of 180 assembled PCs. The operator should enter only information that Windows cannot reliably discover automatically.
 
@@ -15,7 +15,7 @@ C:\BaselineQC\
 └── SitecQC.exe
 ```
 
-Run `SitecQC.exe` locally from the PC being tested. **Do not connect the company archive USB while hardware discovery or QC is running.** Removable storage is deliberately blocked during QC so a flash drive cannot appear in the storage inventory or contaminate the baseline.
+Run `SitecQC.exe` locally from the PC being tested. Keep removable storage disconnected while hardware discovery or QC is running. Removable storage is deliberately blocked during QC so it cannot appear in the storage inventory or contaminate the baseline. SitecQC can automatically export the final PDF and Full JSON to the configured SMB collector after QC completes.
 
 The production profile now acts as a **QC recipe**: it supplies benchmark thresholds, identity-capture requirements and the optional expected-hardware reference. **Hardware/profile comparison is operator-selectable and OFF by default.** When selected, detected CPU/RAM/motherboard/storage/GPU and recorded physical models are compared with the profile and any differences are advisory only. Missing required serials, duplicate serial identities and PnP device errors remain blocking identity/integrity failures regardless of profile-comparison selection. A healthy benchmark with an enabled profile comparison that finds differences is still displayed as hardware `PASS` with a separate profile advisory.
 
@@ -32,7 +32,7 @@ The application:
 9. generates a two-page PDF, compact Baseline JSON, and complete Full JSON;
 10. removes transient benchmark/runtime data after publishing the final evidence.
 
-After SitecQC is closed, the company USB may be connected and the PDF/Baseline/Full JSON files copied manually to the protected company archive and master Excel workflow.
+When network export is enabled, the QC Certificate PDF and Full JSON are copied automatically to the configured collector while the local copies remain on the PC. The network export result is independent of the QC PASS/FAIL classification.
 
 ## Asset-scoped SitecQC data root
 
@@ -207,8 +207,8 @@ The intended handover sequence is:
 3. show the powered-on PC and detected hardware to the customer;
 4. print/review the certificate;
 5. apply the registered tamper seal in front of the customer;
-6. close SitecQC;
-7. connect the company USB and manually copy the PDF + Baseline JSON + Full JSON;
+6. let SitecQC export the QC Certificate PDF + Full JSON to the configured network collector;
+7. verify the network export status in the application;
 8. transfer/import the machine-readable values into the protected master Excel/archive.
 
 Cross-PC duplicate-serial detection and long-term baseline comparison belong to that company-side archive, not to a persistent database on the delivered PC.
@@ -227,3 +227,10 @@ GitHub Actions validates PowerShell 5.1 syntax, JSON, XAML, runtime smoke tests,
 - [`docs/HWID-v2.md`](docs/HWID-v2.md) — OS-independent hardware identity definition
 - [`docs/EVIDENCE-INTEGRITY.md`](docs/EVIDENCE-INTEGRITY.md) — HWID, manifest hash and signature model
 - [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) — third-party components
+
+
+## QC network export
+
+The production UI includes a dedicated **Network export settings** panel. The default collector path is `\\10.50.50.20\QC-Results`, the account label is `QCTransfer`, and automatic export is enabled. Use **Copy** to place the UNC path on the clipboard, **Test connection** to verify TCP/445 plus write/delete permission, and **Save settings** to create the machine-local `SitecQC.local.json` override next to the executable.
+
+SMB authentication is deliberately supplied by Windows rather than embedding a password in this public repository. See [docs/network-export.md](docs/network-export.md).
