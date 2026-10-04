@@ -53,8 +53,8 @@
             <TextBlock Text="Collector path" Foreground="#667"/>
             <Grid Margin="0,3,0,7">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="72"/></Grid.ColumnDefinitions>
-              <TextBox x:Name="TxtNetworkSharePath" Height="28" VerticalContentAlignment="Center" IsReadOnly="False" ToolTip="SMB collector path. Select or copy this text for Windows Explorer."/>
-              <Button x:Name="BtnCopyNetworkPath" Grid.Column="1" Content="Copy" Margin="6,0,0,0"/>
+              <TextBox x:Name="TxtNetworkSharePath" Height="28" VerticalContentAlignment="Center" IsReadOnly="False" ToolTip="SMB collector path opened by the Open button using the Windows stored SMB credential."/>
+              <Button x:Name="BtnOpenNetworkPath" Grid.Column="1" Content="Open" Margin="6,0,0,0" ToolTip="Open the collector in Windows Explorer. Windows automatically supplies the stored QCTransfer credential."/>
             </Grid>
             <Grid Margin="0,0,0,7">
               <Grid.ColumnDefinitions><ColumnDefinition Width="86"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
