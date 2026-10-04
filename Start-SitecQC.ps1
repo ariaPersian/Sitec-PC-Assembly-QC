@@ -406,6 +406,24 @@ $timer.Add_Tick({
             if ([string]::IsNullOrWhiteSpace($failureMessage)) { $failureMessage='The QC application or publishing pipeline encountered a runtime error.' }
             $TxtMessage.Text=("QC application ERROR. {0} Full JSON is the authoritative QC evidence when it is available." -f $failureMessage)
         }
+        try {
+            if ([bool]$ChkNetworkExport.IsChecked -and [bool]$ChkNetworkAutoExport.IsChecked) {
+                $retry=3
+                if (-not [int]::TryParse($TxtNetworkRetryCount.Text,[ref]$retry)) { $retry=3 }
+                $certificate=Get-SitecPublishedCertificatePath -BaselineRoot $BaselineRoot -AssetId $asset
+                $export=Invoke-SitecNetworkExport -AssetId $asset -SharePath $TxtNetworkSharePath.Text.Trim() -Files @($fullJson,$certificate) -RetryCount $retry -RetryDelaySeconds 2
+                if ($export.Success) {
+                    $TxtNetworkExportStatus.Text=("Export complete: {0}" -f $export.Destination)
+                    $TxtMessage.Text += (" Network export: SUCCESS -> {0}" -f $export.Destination)
+                } else {
+                    $TxtNetworkExportStatus.Text=("Export failed: {0}" -f $export.Message)
+                    $TxtMessage.Text += ' Network export failed; local PDF and Full JSON were preserved.'
+                }
+            }
+        } catch {
+            $TxtNetworkExportStatus.Text=('Export failed: '+$_.Exception.Message)
+            $TxtMessage.Text += ' Network export failed; local PDF and Full JSON were preserved.'
+        }
         $script:Worker=$null;$script:WorkRoot=$null;$script:CancelPath=$null
     }
 })
