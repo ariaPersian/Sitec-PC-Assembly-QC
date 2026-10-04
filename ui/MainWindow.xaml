@@ -69,10 +69,10 @@
               <TextBox x:Name="TxtNetworkRetryCount" Grid.Column="1" Height="28" Text="3" HorizontalContentAlignment="Center" ToolTip="Retry count (1-10)"/>
             </Grid>
             <UniformGrid Columns="2" Margin="0,0,0,5">
-              <Button x:Name="BtnTestNetwork" Content="Test connection" Height="32" Margin="0,0,4,0"/>
+              <Button x:Name="BtnTestNetwork" Content="Test connection" Height="32" Margin="0,0,4,0" ToolTip="Runs in the background; all QC input fields remain usable while the collector is tested."/>
               <Button x:Name="BtnSaveNetwork" Content="Save settings" Height="32" Margin="4,0,0,0"/>
             </UniformGrid>
-            <TextBlock x:Name="TxtNetworkExportStatus" Text="Not tested" Foreground="#667" TextWrapping="Wrap"/>
+            <TextBlock x:Name="TxtNetworkExportStatus" Text="Startup network test pending..." Foreground="#667" TextWrapping="Wrap"/>
           </StackPanel>
         </GroupBox>
 
