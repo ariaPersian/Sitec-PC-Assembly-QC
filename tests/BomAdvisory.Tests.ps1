@@ -61,8 +61,9 @@ Assert-True ($worker -match 'IdentityStatus') 'Worker does not persist independe
 Assert-True ($worker -match 'BenchmarkQcStatus') 'Worker does not persist independent benchmark QC status.'
 
 $report=Get-Content -LiteralPath (Join-Path $root 'src\Functions\ZZZZZZZZZZ-ReportTwoPage.ps1') -Raw -Encoding UTF8
-Assert-True ($report -match 'Hardware QC:') 'Two-page certificate does not show combined hardware QC status.'
-Assert-True ($report -match 'Hardware identity / integrity:') 'Two-page certificate does not show identity/integrity status separately.'
+Assert-True ($report -match '<div class="overall \$statusClass">') 'Two-page certificate header does not show the overall QC result.'
+Assert-True ($report -match 'Identity:') 'Two-page certificate footer does not retain the identity/integrity status.'
+Assert-True ($report -notmatch '<h2>Result</h2>') 'Two-page certificate must not repeat the redundant Result summary.'
 Assert-True ($report -match 'Profile comparison:') 'Two-page certificate does not show optional profile-comparison status separately.'
 Assert-True ($report -match 'Benchmark QC:') 'Two-page certificate does not show benchmark QC status separately.'
 Assert-True ($report -match 'PASS_WITH_BOM_MISMATCH') 'Two-page certificate does not normalize advisory profile mismatch to PASS.'
